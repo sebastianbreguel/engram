@@ -2,7 +2,7 @@
 
 Give Claude Code persistent memory across sessions — near-zero ambient token cost (~200 tokens/session).
 
-Every session is automatically captured into a local SQLite database. Decisions, corrections, errors, files touched, and tool usage are extracted using regex heuristics — no LLM calls, no external services, no API costs.
+Every session is automatically captured into a local SQLite database. Files touched, tool usage, errors, git branch, and session topics are extracted from transcripts — no LLM calls, no external services, no API costs.
 
 ```
 $ uv run ~/.claude/tools/memcapture.py --stats
@@ -42,11 +42,10 @@ YOUR NORMAL DAY
        │                     (saves snapshot)      (background, fire-and-forget)
        │                                                    │
        │                                           memcapture.py parses JSONL:
-       │                                           • decisions (regex)
-       │                                           • corrections (regex)
        │                                           • errors (real, filtered)
        │                                           • files touched
        │                                           • tool usage counts
+       │                                           • session topic + branch
        │                                                    │
        │                                                    ▼
   Next session starts ◄─── SessionStart hook ◄─── ~/.claude/memory.db
@@ -62,15 +61,13 @@ Every time your context compacts, `memcapture.py` parses the session transcript 
 
 | Type | How | Example |
 |---|---|---|
-| **Decisions** | Regex: "decided", "let's go with", "vamos con"... | "Decided async migration strategy: dual-engine" |
-| **Corrections** | Regex: "no,", "not that", "don't", "eso no"... | "no, me refiero que si total es 1k..." |
 | **Errors** | Real runtime errors only (tracebacks, EACCES...) | "ModuleNotFoundError: No module named 'foo'" |
 | **Files touched** | From Read/Edit/Write tool inputs | `src/main.py` (edit: 5, read: 12) |
 | **Tool usage** | Count per tool per session | Bash: 6060, Read: 3953, Edit: 3095... |
 | **Session topic** | First real user message | "Necesito hacer una query en sql..." |
 | **Git branch** | From git commands in transcripts | `feat/business-context-prompts` |
 
-Facts are **deduplicated** (MD5 hash) — the same decision won't appear twice.
+Facts are **deduplicated** (MD5 hash) — the same error won't appear twice.
 
 ### What gets injected at SessionStart
 
@@ -82,13 +79,38 @@ Recent sessions:
 - 2026-04-13 (feat/auth) Add OAuth2 flow to login endpoint
 - 2026-04-12 Fix broken migration on users table
 - 2026-04-11 Refactor pipeline stages into separate modules
-Recent decisions:
-- Decided async migration strategy: dual-engine approach
-- chose option a: tests first, then class refactor
-Recent corrections:
-- no, me refiero que si total es 1k, empieza a bajar el %
+Recent commits:
+- a1b2c3d Add OAuth2 flow to login endpoint
+- d4e5f6g Fix broken migration on users table
+- h7i8j9k Refactor pipeline stages
+Recent errors:
+- ModuleNotFoundError: No module named 'foo'
 </session-memory>
 ```
+
+### Experimental: Semantic Fact Extraction
+
+Opt-in regex-based extraction of decisions and corrections from conversations. Disabled by default — the heuristics have a meaningful false positive rate (~30-50%).
+
+Enable with:
+```bash
+# Per invocation
+uv run ~/.claude/tools/memcapture.py --extract-facts
+
+# Always on (add to your shell profile)
+export MEMCAPTURE_EXTRACT_FACTS=1
+```
+
+When enabled, captures:
+
+| Type | How | Example |
+|---|---|---|
+| **Decisions** | Regex: "decided", "let's go with", "vamos con"... | "Decided async migration strategy: dual-engine" |
+| **Corrections** | Regex: "no,", "not that", "don't", "eso no"... | "no, me refiero que si total es 1k..." |
+
+## Advanced / Power Users
+
+These tools provide deeper memory management but are not required for day-to-day use.
 
 ### Manual skills (on-demand, zero cost until invoked)
 
@@ -114,7 +136,7 @@ Walks all `~/.claude/projects/*/memory/*.md` directories and generates:
 | Component | Tokens | When |
 |---|---|---|
 | MEMORY.md | ~150 | Every session (already exists) |
-| SessionStart inject | ~200 | Every session (new) |
+| SessionStart inject | ~200 | Every session (sessions + commits + errors) |
 | memcapture hook | 0 | Background, no LLM |
 | `/dream` skill | ~700 | Only when invoked |
 | `/reflect` skill | ~500 | Only when invoked |
