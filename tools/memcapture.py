@@ -745,6 +745,24 @@ def main() -> None:
         type=str,
         help="Session ID for source tracking (used with --ingest-digest)",
     )
+    parser.add_argument(
+        "--memories",
+        nargs="?",
+        const="*",
+        metavar="PATTERN",
+        help="List memories (optional topic LIKE pattern, e.g. 'test_*')",
+    )
+    parser.add_argument(
+        "--forget",
+        type=str,
+        metavar="TOPIC",
+        help="Delete a memory by topic",
+    )
+    parser.add_argument(
+        "--ephemeral",
+        action="store_true",
+        help="With --forget: delete all ephemeral memories",
+    )
     args = parser.parse_args()
 
     db = MemoryDB()
@@ -798,6 +816,31 @@ def main() -> None:
                     source_session=args.session_id,
                 )
             print(f"Ingested {len(memories)} memories")
+            return
+
+        if args.memories is not None:
+            pattern = None if args.memories == "*" else args.memories.replace("*", "%")
+            memories = db.list_memories(pattern)
+            if not memories:
+                print("No memories found")
+                return
+            for m in memories:
+                dur = "D" if m["durability"] == "durable" else "E"
+                print(f"  [{dur}] {m['topic']:30s} {m['content'][:80]}")
+            print(
+                f"\n{len(memories)} memories ({sum(1 for m in memories if m['durability'] == 'durable')} durable, {sum(1 for m in memories if m['durability'] == 'ephemeral')} ephemeral)"
+            )
+            return
+
+        if args.forget:
+            if args.ephemeral:
+                count = db.forget_all_ephemeral()
+                print(f"Deleted {count} ephemeral memories")
+            else:
+                if db.forget_memory(args.forget):
+                    print(f"Forgot: {args.forget}")
+                else:
+                    print(f"No memory with topic: {args.forget}")
             return
 
         # Capture mode
