@@ -24,9 +24,18 @@ PROJECT_STREAK_THRESHOLD = 5
 TOOL_ANOMALY_FACTOR = 2.0
 
 
-def _slugify(path: str) -> str:
-    """Convert a file path to a wiki-safe slug: src/auth.py → src-auth-py."""
-    return re.sub(r"[^a-zA-Z0-9]+", "-", path).strip("-")
+def _slugify(path: str, max_len: int = 80) -> str:
+    """Convert a file path to a wiki-safe slug: src/auth.py → src-auth-py.
+
+    Truncates and appends a hash suffix if the result exceeds max_len.
+    """
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", path).strip("-")
+    if len(slug) <= max_len:
+        return slug
+    import hashlib
+
+    h = hashlib.md5(path.encode()).hexdigest()[:8]
+    return slug[: max_len - 9] + "-" + h
 
 
 class WikiWriter:
@@ -354,7 +363,13 @@ class PatternsOrchestrator:
         kind = pattern["kind"]
         if kind == "co_edit":
             files = sorted(pattern["files"])
-            return "co-edit-" + "-".join(_slugify(f) for f in files)
+            name = "co-edit-" + "-".join(_slugify(f) for f in files)
+            if len(name) > 200:
+                import hashlib
+
+                h = hashlib.md5("-".join(files).encode()).hexdigest()[:12]
+                name = name[:187] + "-" + h
+            return name
         if kind == "error_recurrence":
             return "error-" + pattern["hash"][:12]
         if kind == "project_streak":
