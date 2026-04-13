@@ -38,12 +38,15 @@ echo "  -> tools/memcompile.py (cross-project compiler)"
 cp "$SCRIPT_DIR/hooks/memcapture-hook.sh" "$CLAUDE_DIR/hooks/memcapture-hook.sh"
 cp "$SCRIPT_DIR/hooks/memcapture-inject.sh" "$CLAUDE_DIR/hooks/memcapture-inject.sh"
 cp "$SCRIPT_DIR/hooks/memdigest-hook.sh" "$CLAUDE_DIR/hooks/memdigest-hook.sh"
+cp "$SCRIPT_DIR/hooks/memcompact-hook.sh" "$CLAUDE_DIR/hooks/memcompact-hook.sh"
 chmod +x "$CLAUDE_DIR/hooks/memcapture-hook.sh"
 chmod +x "$CLAUDE_DIR/hooks/memcapture-inject.sh"
 chmod +x "$CLAUDE_DIR/hooks/memdigest-hook.sh"
+chmod +x "$CLAUDE_DIR/hooks/memcompact-hook.sh"
 echo "  -> hooks/memcapture-hook.sh (PreCompact auto-capture)"
 echo "  -> hooks/memcapture-inject.sh (SessionStart inject)"
 echo "  -> hooks/memdigest-hook.sh (PreCompact LLM memory extraction)"
+echo "  -> hooks/memcompact-hook.sh (PreCompact work-state snapshot)"
 
 cp "$SCRIPT_DIR/skills/dream/SKILL.md" "$CLAUDE_DIR/skills/dream/SKILL.md"
 cp "$SCRIPT_DIR/skills/reflect/SKILL.md" "$CLAUDE_DIR/skills/reflect/SKILL.md"
@@ -93,6 +96,10 @@ if not any("memcapture-hook.sh" in h.get("command", "") for h in hook_list):
 if not any("memdigest-hook.sh" in h.get("command", "") for h in hook_list):
     hook_list.append({"type": "command", "command": "$HOME/.claude/hooks/memdigest-hook.sh"})
     print("  Added PreCompact hook: memdigest-hook.sh")
+
+if not any("memcompact-hook.sh" in h.get("command", "") for h in hook_list):
+    hook_list.append({"type": "command", "command": "$HOME/.claude/hooks/memcompact-hook.sh"})
+    print("  Added PreCompact hook: memcompact-hook.sh")
 
 # Add memcapture-inject to SessionStart
 session_start = hooks.setdefault("SessionStart", [])
