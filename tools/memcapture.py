@@ -153,6 +153,15 @@ class MemoryDB:
             );
             CREATE INDEX IF NOT EXISTS idx_memories_durability ON memories(durability);
             CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed DESC);
+
+            CREATE TABLE IF NOT EXISTS compactions (
+                id INTEGER PRIMARY KEY,
+                session_id TEXT,
+                project TEXT NOT NULL,
+                snapshot TEXT,
+                compacted_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_compactions_project ON compactions(project);
         """)
 
         # FTS5 standalone table — we insert directly, no content sync needed
@@ -469,6 +478,34 @@ class MemoryDB:
         )
         self.conn.commit()
         return cursor.rowcount
+
+    def save_compaction(
+        self, session_id: str | None, project: str, snapshot: str | None = None
+    ) -> None:
+        self.conn.execute(
+            "INSERT INTO compactions (session_id, project, snapshot) VALUES (?, ?, ?)",
+            (session_id, project, snapshot),
+        )
+        self.conn.commit()
+
+    def get_latest_snapshot(self, project: str, max_age_hours: int = 2) -> dict | None:
+        row = self.conn.execute(
+            "SELECT session_id, snapshot, compacted_at FROM compactions WHERE project = ? AND snapshot IS NOT NULL AND compacted_at > datetime('now', ? || ' hours') ORDER BY compacted_at DESC LIMIT 1",
+            (project, f"-{max_age_hours}"),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def compaction_stats(self) -> dict:
+        total = self.conn.execute("SELECT COUNT(*) as c FROM compactions").fetchone()[
+            "c"
+        ]
+        by_project = self.conn.execute(
+            "SELECT project, COUNT(*) as c FROM compactions GROUP BY project ORDER BY c DESC LIMIT 10"
+        ).fetchall()
+        return {
+            "total": total,
+            "by_project": [(r["project"], r["c"]) for r in by_project],
+        }
 
     def close(self) -> None:
         self.conn.close()
