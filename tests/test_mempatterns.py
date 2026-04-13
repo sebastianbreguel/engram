@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import date, timedelta
 
 import pytest
 
-from mempatterns import PatternDetector, WikiWriter, _slugify
+from mempatterns import PatternDetector, PatternsOrchestrator, WikiWriter, _slugify
 
 
 @pytest.fixture
@@ -586,3 +587,185 @@ def test_write_index(wiki_dir):
     index = (wiki_dir / "index.md").read_text()
     assert "[[src-auth-py]]" in index
     assert "[[auth-middleware-pair]]" in index
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _insert_co_edit_sessions(
+    conn, n: int, file_a: str = "a.py", file_b: str = "b.py", start_id: int = 0
+):
+    for i in range(n):
+        sid = f"sess-coedit-{start_id + i}"
+        conn.execute(
+            "INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                start_id + i,
+                sid,
+                "proj",
+                None,
+                None,
+                None,
+                0,
+                0,
+                f"2024-01-{(i % 28) + 1:02d}T10:00:00",
+                None,
+            ),
+        )
+        conn.execute(
+            "INSERT INTO files_touched VALUES (?,?,?,?,?)",
+            ((start_id + i) * 2, sid, file_a, "edit", 1),
+        )
+        conn.execute(
+            "INSERT INTO files_touched VALUES (?,?,?,?,?)",
+            ((start_id + i) * 2 + 1, sid, file_b, "edit", 1),
+        )
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# TestOrchestrator
+# ---------------------------------------------------------------------------
+
+
+class TestOrchestrator:
+    def test_full_update_creates_wiki(self, tmp_db, wiki_dir):
+        db_path, conn = tmp_db
+        _insert_co_edit_sessions(conn, 5)
+        orch = PatternsOrchestrator(db_path=db_path, wiki_dir=wiki_dir)
+        new_patterns = orch.update()
+        assert len(new_patterns) >= 1
+        assert (wiki_dir / "index.md").exists()
+        assert any((wiki_dir / "patterns").glob("*.md"))
+
+    def test_meta_tracks_runs(self, tmp_db, wiki_dir):
+        db_path, conn = tmp_db
+        _insert_co_edit_sessions(conn, 5)
+        orch = PatternsOrchestrator(db_path=db_path, wiki_dir=wiki_dir)
+        orch.update()
+        orch2 = PatternsOrchestrator(db_path=db_path, wiki_dir=wiki_dir)
+        orch2.update()
+        assert orch2.meta["total_runs"] == 2
+
+    def test_stale_patterns_marked(self, tmp_db, wiki_dir):
+        db_path, conn = tmp_db
+        _insert_co_edit_sessions(conn, 5)
+        orch = PatternsOrchestrator(db_path=db_path, wiki_dir=wiki_dir)
+        orch.update()
+        # Manually backdate a pattern page to 35 days ago
+        old_date = str(date.today() - timedelta(days=35))
+        pattern_files = list((wiki_dir / "patterns").glob("*.md"))
+        assert pattern_files, "No pattern files created"
+        pf = pattern_files[0]
+        content = pf.read_text()
+        content = content.replace(
+            f"last_reinforced: {date.today()}", f"last_reinforced: {old_date}"
+        )
+        pf.write_text(content)
+        # Run update again (no new data — same DB)
+        orch2 = PatternsOrchestrator(db_path=db_path, wiki_dir=wiki_dir)
+        orch2._prune_stale()
+        updated = pf.read_text()
+        assert "status: stale" in updated
+
+    def test_stale_patterns_deleted(self, tmp_db, wiki_dir):
+        db_path, conn = tmp_db
+        _insert_co_edit_sessions(conn, 5)
+        orch = PatternsOrchestrator(db_path=db_path, wiki_dir=wiki_dir)
+        orch.update()
+        pattern_files = list((wiki_dir / "patterns").glob("*.md"))
+        assert pattern_files
+        pf = pattern_files[0]
+        old_date = str(date.today() - timedelta(days=61))
+        content = pf.read_text()
+        content = content.replace("status: active", "status: stale")
+        content = content.replace(
+            f"last_reinforced: {date.today()}", f"last_reinforced: {old_date}"
+        )
+        pf.write_text(content)
+        orch2 = PatternsOrchestrator(db_path=db_path, wiki_dir=wiki_dir)
+        orch2._prune_stale()
+        assert not pf.exists()
+
+    def test_returns_only_new_patterns(self, tmp_db, wiki_dir):
+        db_path, conn = tmp_db
+        _insert_co_edit_sessions(conn, 5)
+        orch = PatternsOrchestrator(db_path=db_path, wiki_dir=wiki_dir)
+        first = orch.update()
+        assert len(first) >= 1
+        orch2 = PatternsOrchestrator(db_path=db_path, wiki_dir=wiki_dir)
+        second = orch2.update()
+        assert second == []
+
+    def test_suggestions_written(self, tmp_db, wiki_dir):
+        db_path, conn = tmp_db
+        # Insert 10 co-edits (threshold=5, SUGGESTION_FACTOR=2 → need confidence > 10)
+        _insert_co_edit_sessions(conn, 11)
+        orch = PatternsOrchestrator(db_path=db_path, wiki_dir=wiki_dir)
+        orch.update()
+        pending = wiki_dir / "suggestions" / "pending.md"
+        assert pending.exists()
+        assert pending.read_text().strip() != ""
+
+    def test_forget_deletes_pattern(self, tmp_db, wiki_dir):
+        db_path, conn = tmp_db
+        _insert_co_edit_sessions(conn, 5)
+        orch = PatternsOrchestrator(db_path=db_path, wiki_dir=wiki_dir)
+        orch.update()
+        pattern_files = list((wiki_dir / "patterns").glob("*.md"))
+        assert pattern_files
+        name = pattern_files[0].stem
+        result = orch.forget(name)
+        assert result is True
+        assert not (wiki_dir / "patterns" / f"{name}.md").exists()
+
+    def test_forget_returns_false_for_missing(self, tmp_db, wiki_dir):
+        db_path, conn = tmp_db
+        orch = PatternsOrchestrator(db_path=db_path, wiki_dir=wiki_dir)
+        assert orch.forget("nonexistent-pattern") is False
+
+    def test_report_formats_correctly(self, tmp_db, wiki_dir):
+        db_path, conn = tmp_db
+        _insert_co_edit_sessions(conn, 5)
+        orch = PatternsOrchestrator(db_path=db_path, wiki_dir=wiki_dir)
+        orch.update()
+        report = orch.report()
+        assert "co_edit" in report or "co-edit" in report
+        assert any(c.isdigit() for c in report)
+
+    def test_status_shows_counts(self, tmp_db, wiki_dir):
+        db_path, conn = tmp_db
+        _insert_co_edit_sessions(conn, 5)
+        orch = PatternsOrchestrator(db_path=db_path, wiki_dir=wiki_dir)
+        orch.update()
+        status = orch.status()
+        assert "pattern" in status.lower()
+        assert "run" in status.lower()
+
+
+# ---------------------------------------------------------------------------
+# TestCLI
+# ---------------------------------------------------------------------------
+
+
+class TestCLI:
+    def test_status_flag(self, tmp_db, wiki_dir, capsys):
+        import sys
+
+        from mempatterns import main
+
+        db_path, conn = tmp_db
+        _insert_co_edit_sessions(conn, 5)
+        sys.argv = [
+            "mempatterns",
+            "--status",
+            "--db-path",
+            str(db_path),
+            "--wiki-dir",
+            str(wiki_dir),
+        ]
+        main()
+        captured = capsys.readouterr()
+        assert "pattern" in captured.out.lower() or "run" in captured.out.lower()

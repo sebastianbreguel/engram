@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 import re
 import sqlite3
 from collections import defaultdict
@@ -322,3 +324,266 @@ class PatternDetector:
                     }
                 )
         return results
+
+
+STALE_DAYS = 30
+DELETE_DAYS = 60
+SUGGESTION_FACTOR = 2
+
+
+class PatternsOrchestrator:
+    """Orchestrates detection, wiki maintenance, and lifecycle of patterns."""
+
+    def __init__(self, db_path: Path = DB_PATH, wiki_dir: Path = WIKI_DIR):
+        self.db_path = db_path
+        self.wiki_dir = wiki_dir
+        self.meta_path = self.wiki_dir / ".meta.json"
+        self.detector = PatternDetector(db_path=db_path, wiki_dir=wiki_dir)
+        self.writer = WikiWriter(wiki_dir=wiki_dir)
+        self.meta = self._load_meta()
+
+    def _load_meta(self) -> dict:
+        if self.meta_path.exists():
+            return json.loads(self.meta_path.read_text())
+        return {"total_runs": 0, "total_pruned": 0, "last_run": None}
+
+    def _save_meta(self) -> None:
+        self.meta_path.write_text(json.dumps(self.meta, indent=2))
+
+    def _pattern_name(self, pattern: dict) -> str:
+        kind = pattern["kind"]
+        if kind == "co_edit":
+            files = sorted(pattern["files"])
+            return "co-edit-" + "-".join(_slugify(f) for f in files)
+        if kind == "error_recurrence":
+            return "error-" + pattern["hash"][:12]
+        if kind == "project_streak":
+            return "streak-" + _slugify(pattern["project"])
+        if kind == "tool_anomaly":
+            return (
+                "tool-anomaly-"
+                + _slugify(pattern["project"])
+                + "-"
+                + _slugify(pattern["tool"])
+            )
+        return _slugify(str(pattern))
+
+    def _pattern_description(self, pattern: dict) -> str:
+        kind = pattern["kind"]
+        if kind == "co_edit":
+            return f"Files {pattern['files'][0]} and {pattern['files'][1]} are edited together frequently ({pattern['count']} sessions)."
+        if kind == "error_recurrence":
+            return f"Error recurs across sessions ({pattern['count']} times): {pattern['content']}"
+        if kind == "project_streak":
+            return f"Project {pattern['project']} had a streak of {pattern['streak']} consecutive active days."
+        if kind == "tool_anomaly":
+            return (
+                f"Project {pattern['project']} uses {pattern['tool']} at {pattern['ratio']:.1f}x the global average"
+                f" ({pattern['project_avg']:.1f} vs {pattern['global_avg']:.1f})."
+            )
+        return str(pattern)
+
+    def _pattern_confidence_and_threshold(self, pattern: dict) -> tuple[int, int]:
+        kind = pattern["kind"]
+        if kind == "co_edit":
+            return pattern["count"], CO_EDIT_THRESHOLD
+        if kind == "error_recurrence":
+            return pattern["count"], ERROR_RECURRENCE_THRESHOLD
+        if kind == "project_streak":
+            return pattern["streak"], PROJECT_STREAK_THRESHOLD
+        if kind == "tool_anomaly":
+            return int(pattern["ratio"] * 10), int(TOOL_ANOMALY_FACTOR * 10)
+        return 0, 1
+
+    def update(self) -> list[dict]:
+        """Run all detectors, update wiki, prune stale, return NEW patterns only."""
+        all_patterns: list[dict] = []
+        with self.detector:
+            all_patterns.extend(self.detector.detect_co_edits())
+            all_patterns.extend(self.detector.detect_error_recurrence())
+            all_patterns.extend(self.detector.detect_project_streaks())
+            all_patterns.extend(self.detector.detect_tool_anomalies())
+
+        # Re-open detector for next calls (context manager closed it)
+        self.detector = PatternDetector(db_path=self.db_path, wiki_dir=self.wiki_dir)
+
+        patterns_dir = self.wiki_dir / "patterns"
+        existing_names = {p.stem for p in patterns_dir.glob("*.md")}
+
+        new_patterns = []
+        for pattern in all_patterns:
+            name = self._pattern_name(pattern)
+            confidence, threshold = self._pattern_confidence_and_threshold(pattern)
+            description = self._pattern_description(pattern)
+            files = pattern.get("files")
+            self.writer.write_pattern_page(
+                name=name,
+                kind=pattern["kind"],
+                confidence=confidence,
+                threshold=threshold,
+                description=description,
+                files=files,
+            )
+            if name not in existing_names:
+                new_patterns.append(pattern)
+
+            # Write entity pages for co-edits
+            if pattern["kind"] == "co_edit":
+                for f in pattern["files"]:
+                    partners = [
+                        (other, pattern["count"])
+                        for other in pattern["files"]
+                        if other != f
+                    ]
+                    self.writer.write_entity_page(
+                        f, sessions=pattern["count"], co_edits=partners, errors=[]
+                    )
+
+        self._prune_stale()
+        self._write_suggestions()
+        self.writer.write_index()
+
+        self.meta["total_runs"] += 1
+        self.meta["last_run"] = str(date.today())
+        self._save_meta()
+
+        return new_patterns
+
+    def _prune_stale(self) -> None:
+        """Mark old patterns stale (>30 days), delete very old (>60 days stale)."""
+        today = date.today()
+        for pf in (self.wiki_dir / "patterns").glob("*.md"):
+            content = pf.read_text()
+            m = re.search(r"last_reinforced:\s*(\S+)", content)
+            if not m:
+                continue
+            last_reinforced = date.fromisoformat(m.group(1))
+            age = (today - last_reinforced).days
+
+            status_m = re.search(r"status:\s*(\S+)", content)
+            current_status = status_m.group(1) if status_m else "active"
+
+            if current_status == "stale" and age > DELETE_DAYS:
+                pf.unlink()
+                self.meta["total_pruned"] = self.meta.get("total_pruned", 0) + 1
+            elif current_status != "stale" and age > STALE_DAYS:
+                updated = re.sub(r"status:\s*\S+", "status: stale", content)
+                pf.write_text(updated)
+
+    def _write_suggestions(self) -> None:
+        """Write suggestions/pending.md for patterns with confidence > threshold * SUGGESTION_FACTOR."""
+        high_confidence = []
+        for pf in (self.wiki_dir / "patterns").glob("*.md"):
+            content = pf.read_text()
+            conf_m = re.search(r"^confidence:\s*(\d+)", content, re.MULTILINE)
+            thresh_m = re.search(r"^threshold:\s*(\d+)", content, re.MULTILINE)
+            kind_m = re.search(r"^kind:\s*(\S+)", content, re.MULTILINE)
+            if conf_m and thresh_m:
+                conf = int(conf_m.group(1))
+                thresh = int(thresh_m.group(1))
+                if conf > thresh * SUGGESTION_FACTOR:
+                    kind = kind_m.group(1) if kind_m else "unknown"
+                    high_confidence.append(
+                        {"name": pf.stem, "confidence": conf, "kind": kind}
+                    )
+
+        if not high_confidence:
+            return
+
+        lines = ["# Suggested Actions\n", f"Generated: {date.today()}\n\n"]
+        for p in sorted(high_confidence, key=lambda x: -x["confidence"]):
+            lines.append(
+                f"- **{p['name']}** ({p['kind']}) — confidence {p['confidence']}\n"
+            )
+
+        pending = self.wiki_dir / "suggestions" / "pending.md"
+        pending.write_text("".join(lines))
+
+    def forget(self, name: str) -> bool:
+        """Delete a pattern page, update index. Return True if found."""
+        pf = self.wiki_dir / "patterns" / f"{name}.md"
+        if not pf.exists():
+            return False
+        pf.unlink()
+        self.writer.write_index()
+        return True
+
+    def report(self) -> str:
+        """Formatted report of all patterns ranked by confidence."""
+        entries = []
+        for pf in (self.wiki_dir / "patterns").glob("*.md"):
+            content = pf.read_text()
+            conf_m = re.search(r"^confidence:\s*(\d+)", content, re.MULTILINE)
+            kind_m = re.search(r"^kind:\s*(\S+)", content, re.MULTILINE)
+            status_m = re.search(r"^status:\s*(\S+)", content, re.MULTILINE)
+            conf = int(conf_m.group(1)) if conf_m else 0
+            kind = kind_m.group(1) if kind_m else "unknown"
+            status = status_m.group(1) if status_m else "active"
+            entries.append((conf, pf.stem, kind, status))
+
+        entries.sort(key=lambda x: -x[0])
+        lines = ["# Pattern Report\n"]
+        for conf, name, kind, status in entries:
+            lines.append(f"- [{status}] {name}  kind={kind}  confidence={conf}")
+        return "\n".join(lines)
+
+    def status(self) -> str:
+        """Wiki stats: entity count, pattern count, runs, pruned."""
+        entities = len(list((self.wiki_dir / "entities").glob("*.md")))
+        patterns = list((self.wiki_dir / "patterns").glob("*.md"))
+        active = sum(1 for p in patterns if "status: active" in p.read_text())
+        stale = len(patterns) - active
+        runs = self.meta.get("total_runs", 0)
+        pruned = self.meta.get("total_pruned", 0)
+        return (
+            f"Patterns wiki: {entities} entities | {len(patterns)} patterns ({active} active, {stale} stale)"
+            f" | {runs} runs | {pruned} pruned"
+        )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="mempatterns — detect patterns from memory.db"
+    )
+    parser.add_argument("--update", action="store_true")
+    parser.add_argument("--report", action="store_true")
+    parser.add_argument("--suggest", action="store_true")
+    parser.add_argument("--status", action="store_true")
+    parser.add_argument("--forget", type=str, metavar="NAME")
+    parser.add_argument("--rebuild", action="store_true")
+    parser.add_argument("--db-path", type=Path, default=DB_PATH, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--wiki-dir", type=Path, default=WIKI_DIR, help=argparse.SUPPRESS
+    )
+    args = parser.parse_args()
+
+    orch = PatternsOrchestrator(db_path=args.db_path, wiki_dir=args.wiki_dir)
+
+    if args.update or args.rebuild:
+        new = orch.update()
+        if new:
+            print(f"New patterns detected: {len(new)}")
+            for p in new:
+                name = orch._pattern_name(p)
+                print(f"  + {name} ({p['kind']})")
+
+    if args.report:
+        print(orch.report())
+
+    if args.suggest:
+        pending = args.wiki_dir / "suggestions" / "pending.md"
+        if pending.exists():
+            print(pending.read_text())
+        else:
+            print("No suggestions.")
+
+    if args.status:
+        print(orch.status())
+
+    if args.forget:
+        found = orch.forget(args.forget)
+        print(f"Deleted: {args.forget}" if found else f"Not found: {args.forget}")
+
+
+if __name__ == "__main__":
+    main()
