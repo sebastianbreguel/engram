@@ -1,4 +1,4 @@
-# claude-memory-stack
+# engram
 
 Give Claude Code persistent memory that learns from your sessions — what you prefer, what worked, what's in progress.
 
@@ -177,8 +177,8 @@ Most other memory solutions add significantly more ambient cost due to MCP tool 
 ### One-liner
 
 ```bash
-git clone https://github.com/sebastianbreguel/claude-memory-stack.git
-cd claude-memory-stack
+git clone https://github.com/sebastianbreguel/engram.git
+cd engram
 ./install.sh
 ```
 
@@ -242,7 +242,7 @@ uv run ~/.claude/tools/memcapture.py --all
 ### Uninstall
 
 ```bash
-cd claude-memory-stack
+cd engram
 ./uninstall.sh
 ```
 

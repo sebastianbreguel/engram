@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# claude-memory-stack uninstaller
+# engram uninstaller
 # Removes tools, hooks, and skills. Does NOT delete memory.db (your data).
 
 set -euo pipefail
 
 CLAUDE_DIR="$HOME/.claude"
 
-echo "claude-memory-stack uninstaller"
+echo "engram uninstaller"
 echo "================================"
 echo ""
 
