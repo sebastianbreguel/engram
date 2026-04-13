@@ -911,20 +911,44 @@ def main() -> None:
 
         if args.stats:
             s = db.stats()
-            print(f"Sessions captured: {s['sessions']}")
-            print(f"Unique files touched: {s['unique_files']}")
-            print(f"Facts by type: {s['facts_by_type']}")
-            print("\nTop tools:")
-            for name, count in s["top_tools"]:
-                print(f"  {name:30s} {count:5d}")
-            print("\nTop files:")
-            for path, count in s["top_files"]:
-                print(f"  {path:80s} {count:3d}")
             cs = db.compaction_stats()
-            print(f"\nCompactions: {cs['total']}")
-            if cs["by_project"]:
-                for proj, count in cs["by_project"][:5]:
-                    print(f"  {proj[:50]:50s} {count:3d}")
+            mem_rows = db.conn.execute(
+                "SELECT durability, COUNT(*) as c FROM memories GROUP BY durability"
+            ).fetchall()
+            mem_counts = {r["durability"]: r["c"] for r in mem_rows}
+            durable = mem_counts.get("durable", 0)
+            ephemeral = mem_counts.get("ephemeral", 0)
+
+            top_projects = db.conn.execute(
+                "SELECT project, COUNT(*) as c FROM sessions GROUP BY project ORDER BY c DESC LIMIT 5"
+            ).fetchall()
+
+            patterns_dir = Path.home() / ".claude" / "patterns" / "patterns"
+            pattern_count = (
+                len(list(patterns_dir.glob("*.md"))) if patterns_dir.exists() else 0
+            )
+
+            print("engram — what I've learned about you\n")
+            print(
+                f"  {s['sessions']:>5} sessions captured, {cs['total']} compactions processed"
+            )
+            print(f"  {s['unique_files']:>5} unique files touched")
+            print(f"  {durable:>5} preferences remembered (durable)")
+            print(f"  {ephemeral:>5} context notes active (ephemeral)")
+            print(f"  {pattern_count:>5} patterns detected in wiki")
+
+            if top_projects:
+                print("\nMost active projects:")
+                for r in top_projects:
+                    raw = r["project"] or "?"
+                    # Claude Code project slugs use "-" as path separator; take last segment
+                    proj = raw.rstrip("-").split("-")[-1][:40] or raw[:40]
+                    print(f"  • {proj:40s} {r['c']} sessions")
+
+            if s["top_tools"]:
+                print("\nYour top tools:")
+                for name, count in s["top_tools"][:5]:
+                    print(f"  • {name:25s} {count}")
             return
 
         if args.recent:
