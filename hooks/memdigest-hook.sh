@@ -7,12 +7,14 @@ set -euo pipefail
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
 
-# Find the transcript for this session
+# Find the transcript for this session (and derive project slug from dir name)
 TRANSCRIPT=""
+PROJECT=""
 for dir in "$HOME/.claude/projects"/*/; do
     candidate="$dir$SESSION_ID.jsonl"
     if [ -f "$candidate" ]; then
         TRANSCRIPT="$candidate"
+        PROJECT=$(basename "$dir")
         break
     fi
 done
@@ -78,12 +80,14 @@ Rules:
 - Skip routine actions (file reads, git commits, navigation)
 - If a fact contradicts a likely prior preference, still extract it — upsert will handle it
 - Max 10 facts per session
-- Output ONLY the facts, no commentary'
+- Output ONLY the facts, no commentary
+
+After the facts, add ONE blank line, then a single handoff paragraph addressed to the NEXT Claude session working in this project. Start with "HANDOFF: " and write 2-4 sentences in natural prose: what were we doing, where did we leave off, what should the next session pick up. Be concrete, not meta.'
 
     DIGEST=$(echo "$CHUNK" | claude --print -p "$PROMPT" 2>/dev/null || true)
 
     if [ -n "$DIGEST" ]; then
-        echo "$DIGEST" | uv run "$HOME/.claude/tools/memcapture.py" --ingest-digest --session-id="$SESSION_ID" 2>/dev/null || true
+        echo "$DIGEST" | uv run "$HOME/.claude/tools/memcapture.py" --ingest-digest --session-id="$SESSION_ID" --project="$PROJECT" 2>/dev/null || true
     fi
 ) &
 

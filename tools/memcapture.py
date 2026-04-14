@@ -362,10 +362,36 @@ class MemoryDB:
                 )
                 self.conn.commit()
 
-            durable = [r for r in rows if r["durability"] == "durable"]
-            ephemeral = [r for r in rows if r["durability"] == "ephemeral"]
+            # Separate the project-specific handoff from regular memories
+            handoff_topic = None
+            if project:
+                handoff_topic = "handoff_" + re.sub(
+                    r"[^a-z0-9_]", "_", project.lower()
+                ).strip("_")
 
-            lines = ["<session-memory>"]
+            handoff_row = None
+            regular_rows = []
+            for r in rows:
+                if handoff_topic and r["topic"] == handoff_topic:
+                    handoff_row = r
+                else:
+                    regular_rows.append(r)
+
+            durable = [r for r in regular_rows if r["durability"] == "durable"]
+            ephemeral = [
+                r
+                for r in regular_rows
+                if r["durability"] == "ephemeral"
+                and not r["topic"].startswith("handoff_")
+            ]
+
+            lines = []
+            if handoff_row:
+                lines.append("<handoff>")
+                lines.append(handoff_row["content"])
+                lines.append("</handoff>")
+
+            lines.append("<session-memory>")
             char_budget = 1400
             used = 0
 
@@ -783,16 +809,30 @@ class TranscriptParser:
         return ""
 
 
-def parse_digest_output(text: str) -> list[dict]:
+def parse_digest_output(text: str, project: str | None = None) -> list[dict]:
     """Parse LLM digest output into memory dicts.
     Expected format per line: topic | durability | content
+    Also captures trailing "HANDOFF: ..." paragraph as a per-project ephemeral memory.
     """
     memories = []
-    for line in text.strip().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
+    handoff_lines: list[str] = []
+    in_handoff = False
+    for raw in text.strip().splitlines():
+        line = raw.rstrip()
+        if in_handoff:
+            if line.strip():
+                handoff_lines.append(line.strip())
             continue
-        parts = [p.strip() for p in line.split("|", 2)]
+        stripped = line.strip()
+        if stripped.upper().startswith("HANDOFF:"):
+            in_handoff = True
+            rest = stripped[len("HANDOFF:") :].strip()
+            if rest:
+                handoff_lines.append(rest)
+            continue
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = [p.strip() for p in stripped.split("|", 2)]
         if len(parts) != 3:
             continue
         topic, durability, content = parts
@@ -805,6 +845,18 @@ def parse_digest_output(text: str) -> list[dict]:
             memories.append(
                 {"topic": topic, "content": content, "durability": durability}
             )
+
+    if handoff_lines and project:
+        handoff_topic = "handoff_" + re.sub(r"[^a-z0-9_]", "_", project.lower()).strip(
+            "_"
+        )
+        memories.append(
+            {
+                "topic": handoff_topic,
+                "content": " ".join(handoff_lines),
+                "durability": "ephemeral",
+            }
+        )
     return memories
 
 
@@ -966,7 +1018,7 @@ def main() -> None:
 
         if args.ingest_digest:
             text = sys.stdin.read()
-            memories = parse_digest_output(text)
+            memories = parse_digest_output(text, project=args.project)
             for m in memories:
                 db.upsert_memory(
                     m["topic"],
