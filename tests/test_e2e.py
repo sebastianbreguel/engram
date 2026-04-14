@@ -150,3 +150,31 @@ def test_non_error_tool_result_with_traceback_does_not_capture_fact(tmp_home, tm
     error_facts = conn.execute("SELECT content FROM facts WHERE type='error'").fetchall()
     conn.close()
     assert error_facts == [], f"non-error tool_result should not produce error facts, got: {error_facts!r}"
+
+
+def test_facts_table_has_typed_columns(tmp_home):
+    """v1 schema widen: facts has nullable subject/predicate/object/confidence.
+
+    v1 never populates them. v2 will. This test guards that the columns exist.
+    """
+    import sqlite3
+
+    _memcap(["--transcript", str(FIXTURE)])
+    db = tmp_home / ".claude" / "memory.db"
+    conn = sqlite3.connect(str(db))
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(facts)").fetchall()}
+    conn.close()
+    assert {"subject", "predicate", "object", "confidence"}.issubset(cols), f"facts table missing typed columns, has: {cols}"
+
+
+def test_ingest_digest_is_idempotent(tmp_home):
+    """Same digest ingested twice produces the same --memories output (no duplicates)."""
+    _memcap(["--transcript", str(FIXTURE)])
+    digest = "package_manager | durable | prefers uv over pip\n\nHANDOFF: uv only."
+    _memcap(["--ingest-digest", "--session-id", "s1", "--project", "p1"], input=digest)
+    first = _memcap(["--memories"]).stdout
+    _memcap(["--ingest-digest", "--session-id", "s1", "--project", "p1"], input=digest)
+    second = _memcap(["--memories"]).stdout
+    assert first.count("prefers uv over pip") == second.count("prefers uv over pip"), (
+        "repeated ingest of identical digest produced duplicate memories"
+    )

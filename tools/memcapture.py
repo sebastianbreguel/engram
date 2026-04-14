@@ -69,7 +69,9 @@ class MemoryDB:
         self.conn = sqlite3.connect(str(db_path))
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=5000")
         self._create_tables()
+        self._widen_facts()
 
     def _create_tables(self) -> None:
         self.conn.executescript("""
@@ -147,6 +149,16 @@ class MemoryDB:
         except sqlite3.OperationalError:
             pass  # FTS5 not available on this SQLite build
 
+        self.conn.commit()
+
+    def _widen_facts(self) -> None:
+        """Idempotent schema widen: add nullable typed columns for v2. v1 leaves them NULL."""
+        existing = {row[1] for row in self.conn.execute("PRAGMA table_info(facts)").fetchall()}
+        for col in ("subject", "predicate", "object"):
+            if col not in existing:
+                self.conn.execute(f"ALTER TABLE facts ADD COLUMN {col} TEXT")
+        if "confidence" not in existing:
+            self.conn.execute("ALTER TABLE facts ADD COLUMN confidence REAL")
         self.conn.commit()
 
     def _content_hash(self, content: str) -> str:
