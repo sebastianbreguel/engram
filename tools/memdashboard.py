@@ -72,19 +72,30 @@ def query_activity_data(conn: sqlite3.Connection, ignore_list: list[str]) -> lis
 
     Reads the first line of each JSONL transcript to get the real session
     timestamp, falling back to captured_at for missing/unreadable files.
+    Also tracks top 3 projects per day for richer tooltips.
     """
     where, params = _ignore_where(ignore_list)
     rows = conn.execute(
-        f"SELECT transcript_path, captured_at FROM sessions{where}",
+        f"SELECT project, transcript_path, captured_at FROM sessions{where}",
         params,
     ).fetchall()
 
     day_counts: Counter[str] = Counter()
+    day_projects: dict[str, Counter[str]] = {}
     for r in rows:
         day = _session_date(r["transcript_path"], r["captured_at"])
         day_counts[day] += 1
+        raw = r["project"] or "?"
+        short = raw.rstrip("-").split("-")[-1][:30] or raw[:30]
+        day_projects.setdefault(day, Counter())[short] += 1
 
-    return [{"day": d, "count": c} for d, c in sorted(day_counts.items())]
+    result = []
+    for d, c in sorted(day_counts.items()):
+        top = day_projects[d].most_common(3)
+        result.append(
+            {"day": d, "count": c, "top": [{"name": n, "count": k} for n, k in top]}
+        )
+    return result
 
 
 def _session_date(transcript_path: str | None, fallback_ts: str) -> str:
@@ -513,8 +524,7 @@ def _build_html(
                 ds = d.isoformat()
                 c = activity_map.get(ds, 0)
                 bg = _heat_color(c)
-                title = f"{ds}: {c} session{'s' if c != 1 else ''}"
-                week_html += f'<div class="heatmap-day" style="background:{bg}" data-count="{c}" title="{title}"></div>'
+                week_html += f'<div class="heatmap-day" style="background:{bg}" data-count="{c}" data-date="{ds}"></div>'
             # Track first day of each month for labels
             if dow == 0 and d.day <= 7 and d <= today:
                 month_markers.append((week_idx, d.strftime("%b")))
@@ -792,6 +802,42 @@ body {{ font-family:'Inter',system-ui,sans-serif; background:var(--bg); color:va
 .heatmap-legend {{ display:flex; align-items:center; gap:6px; margin-top:12px; justify-content:flex-end; font-size:11px; color:var(--text-muted); }}
 .heatmap-legend-box {{ width:13px; height:13px; border-radius:2px; }}
 
+/* Heatmap Tooltip */
+#heatmap-tooltip {{
+    position:fixed;
+    background:#0f172a;
+    color:#fff;
+    padding:10px 14px;
+    border-radius:8px;
+    font-size:12px;
+    font-family:'Inter',system-ui,sans-serif;
+    box-shadow:0 8px 20px rgba(15,23,42,0.25);
+    pointer-events:none;
+    opacity:0;
+    transform:translate(-50%, calc(-100% - 10px));
+    transition:opacity 0.1s;
+    z-index:1000;
+    min-width:180px;
+    max-width:280px;
+}}
+#heatmap-tooltip.visible {{ opacity:1; }}
+#heatmap-tooltip::after {{
+    content:'';
+    position:absolute;
+    bottom:-6px; left:50%;
+    transform:translateX(-50%);
+    border:6px solid transparent;
+    border-top-color:#0f172a;
+    border-bottom:0;
+}}
+.tt-date {{ font-weight:600; font-size:13px; margin-bottom:4px; }}
+.tt-count {{ color:#93c5fd; font-size:11px; margin-bottom:8px; }}
+.tt-projects {{ border-top:1px solid rgba(255,255,255,0.1); padding-top:8px; }}
+.tt-proj-row {{ display:flex; justify-content:space-between; gap:12px; font-size:11px; padding:2px 0; }}
+.tt-proj-name {{ color:#cbd5e1; font-family:'JetBrains Mono',monospace; }}
+.tt-proj-count {{ color:#94a3b8; font-weight:600; }}
+.tt-empty {{ color:#64748b; font-style:italic; font-size:11px; }}
+
 /* ── Footer ── */
 .footer {{
     text-align:center;
@@ -826,6 +872,7 @@ body {{ font-family:'Inter',system-ui,sans-serif; background:var(--bg); color:va
 <div class="section-heading">Activity</div>
 <div class="section-desc">Your coding sessions over the past year.</div>
 {heatmap_html}
+<div id="heatmap-tooltip"></div>
 
 <!-- How you'd remember it -->
 <div class="section-heading">How you'd remember it&mdash;<br>for your AI.</div>
@@ -961,6 +1008,53 @@ new Chart(document.getElementById('filesChart'), {{
         }}
     }}
 }});
+
+// ── Heatmap tooltip ──
+(function() {{
+    const activityByDay = {json.dumps({a["day"]: a for a in activity})};
+    const tooltip = document.getElementById('heatmap-tooltip');
+
+    function formatDate(dateStr) {{
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const date = new Date(y, m - 1, d);
+        return date.toLocaleDateString('en-US', {{ weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }});
+    }}
+
+    document.querySelectorAll('.heatmap-day[data-date]').forEach(cell => {{
+        cell.addEventListener('mouseenter', (e) => {{
+            const date = cell.dataset.date;
+            const count = parseInt(cell.dataset.count, 10);
+            const info = activityByDay[date];
+
+            let html = `<div class="tt-date">${{formatDate(date)}}</div>`;
+            html += `<div class="tt-count">${{count}} session${{count === 1 ? '' : 's'}}</div>`;
+
+            if (info && info.top && info.top.length > 0) {{
+                html += '<div class="tt-projects">';
+                info.top.forEach(p => {{
+                    html += `<div class="tt-proj-row"><span class="tt-proj-name">${{p.name}}</span><span class="tt-proj-count">${{p.count}}</span></div>`;
+                }});
+                html += '</div>';
+            }} else if (count === 0) {{
+                html += '<div class="tt-empty">No activity</div>';
+            }}
+
+            tooltip.innerHTML = html;
+            tooltip.classList.add('visible');
+            positionTooltip(cell);
+        }});
+
+        cell.addEventListener('mouseleave', () => {{
+            tooltip.classList.remove('visible');
+        }});
+    }});
+
+    function positionTooltip(cell) {{
+        const rect = cell.getBoundingClientRect();
+        tooltip.style.left = (rect.left + rect.width / 2) + 'px';
+        tooltip.style.top = rect.top + 'px';
+    }}
+}})();
 </script>
 </body>
 </html>"""
