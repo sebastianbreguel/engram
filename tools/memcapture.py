@@ -56,29 +56,6 @@ CORRECTION_PATTERNS = [
     # Spanish: "eso no", "no así", "mejor no" — removed bare "para" and "mal" (too broad)
     re.compile(r"^(no[,.\s]|eso no|no así|mejor no)", re.IGNORECASE),
 ]
-# Only actual runtime errors — not source code that mentions errors
-ACTUAL_ERROR_PATTERNS = [
-    re.compile(r"(Traceback \(most recent call last\))", re.IGNORECASE),
-    re.compile(
-        r"^(ModuleNotFoundError|ImportError|SyntaxError|TypeError|ValueError|KeyError|AttributeError|FileNotFoundError|ConnectionError|TimeoutError|NameError|IndexError|RuntimeError|OSError|PermissionError):",
-        re.MULTILINE,
-    ),
-    re.compile(
-        r"(command not found|No such file or directory|fatal: |panic: |EACCES|ENOENT)",
-        re.IGNORECASE,
-    ),
-]
-# Lines that LOOK like errors but are actually source code — skip these
-ERROR_FALSE_POSITIVES = [
-    re.compile(
-        r"^\s*\d+\s*[\|│:]"
-    ),  # line-numbered source: "274:  raise ValueError..."
-    re.compile(
-        r"^\s*(raise|except|logger\.(error|exception)|log\.(error|exception)|#|//|/\*|\*|def |class )"
-    ),  # code definitions
-    re.compile(r"^\s*-\s+`"),  # markdown list with backticks (documentation)
-]
-
 FILE_TOOLS = {"Read", "Edit", "Write", "NotebookEdit"}
 BRANCH_RE = re.compile(r"(?:On branch|branch\s+)(\S+)")
 
@@ -166,9 +143,7 @@ class MemoryDB:
 
         # FTS5 standalone table — we insert directly, no content sync needed
         try:
-            self.conn.execute(
-                "CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(content, type, project, tokenize='unicode61')"
-            )
+            self.conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(content, type, project, tokenize='unicode61')")
         except sqlite3.OperationalError:
             pass  # FTS5 not available on this SQLite build
 
@@ -178,16 +153,12 @@ class MemoryDB:
         return hashlib.md5(content.encode()).hexdigest()[:12]
 
     def is_captured(self, session_id: str) -> bool:
-        row = self.conn.execute(
-            "SELECT 1 FROM sessions WHERE session_id = ?", (session_id,)
-        ).fetchone()
+        row = self.conn.execute("SELECT 1 FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
         return row is not None
 
     def fact_exists(self, content_hash: str) -> bool:
         """Dedup: check if a fact with this hash already exists."""
-        row = self.conn.execute(
-            "SELECT 1 FROM facts WHERE content_hash = ?", (content_hash,)
-        ).fetchone()
+        row = self.conn.execute("SELECT 1 FROM facts WHERE content_hash = ?", (content_hash,)).fetchone()
         return row is not None
 
     def save_session(self, session: SessionData) -> None:
@@ -271,15 +242,9 @@ class MemoryDB:
         return [dict(r) for r in rows]
 
     def stats(self) -> dict:
-        sessions = self.conn.execute("SELECT COUNT(*) as c FROM sessions").fetchone()[
-            "c"
-        ]
-        facts = self.conn.execute(
-            "SELECT type, COUNT(*) as c FROM facts GROUP BY type"
-        ).fetchall()
-        files = self.conn.execute(
-            "SELECT COUNT(DISTINCT path) as c FROM files_touched"
-        ).fetchone()["c"]
+        sessions = self.conn.execute("SELECT COUNT(*) as c FROM sessions").fetchone()["c"]
+        facts = self.conn.execute("SELECT type, COUNT(*) as c FROM facts GROUP BY type").fetchall()
+        files = self.conn.execute("SELECT COUNT(DISTINCT path) as c FROM files_touched").fetchone()["c"]
         top_tools = self.conn.execute(
             "SELECT tool_name, SUM(count) as total FROM tool_usage GROUP BY tool_name ORDER BY total DESC LIMIT 10"
         ).fetchall()
@@ -314,11 +279,7 @@ class MemoryDB:
                 timeout=5,
             )
             if result.returncode == 0 and result.stdout.strip():
-                return [
-                    line.strip()
-                    for line in result.stdout.strip().splitlines()
-                    if line.strip()
-                ]
+                return [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
         return []
@@ -345,9 +306,7 @@ class MemoryDB:
             return f"{int(secs / 86400)}d ago"
         return f"{int(secs / 86400 / 7)}w ago"
 
-    def build_banner(
-        self, project: str | None = None, display_name: str | None = None
-    ) -> str:
+    def build_banner(self, project: str | None = None, display_name: str | None = None) -> str:
         """Compact banner for SessionStart systemMessage — shown between welcome box and prompt."""
         if display_name:
             project_name = display_name[:40]
@@ -363,21 +322,15 @@ class MemoryDB:
                 (f"%{project}%",),
             ).fetchone()
         else:
-            row = self.conn.execute(
-                "SELECT COUNT(*) as c, MAX(captured_at) as last FROM sessions"
-            ).fetchone()
+            row = self.conn.execute("SELECT COUNT(*) as c, MAX(captured_at) as last FROM sessions").fetchone()
         session_count = row["c"] if row else 0
         last_seen = self._relative_time(row["last"] if row else None)
 
-        pref_count = self.conn.execute(
-            "SELECT COUNT(*) as c FROM memories WHERE durability = 'durable'"
-        ).fetchone()["c"]
+        pref_count = self.conn.execute("SELECT COUNT(*) as c FROM memories WHERE durability = 'durable'").fetchone()["c"]
 
         handoff_line = None
         if project:
-            handoff_topic = "handoff_" + re.sub(
-                r"[^a-z0-9_]", "_", project.lower()
-            ).strip("_")
+            handoff_topic = "handoff_" + re.sub(r"[^a-z0-9_]", "_", project.lower()).strip("_")
             hrow = self.conn.execute(
                 "SELECT content FROM memories WHERE topic = ? LIMIT 1",
                 (handoff_topic,),
@@ -387,10 +340,7 @@ class MemoryDB:
                 first_sentence = re.split(r"(?<=[.!?])\s+", content, maxsplit=1)[0]
                 handoff_line = first_sentence[:160]
 
-        use_color = (
-            os.environ.get("NO_COLOR", "") == ""
-            and os.environ.get("TERM", "") != "dumb"
-        )
+        use_color = os.environ.get("NO_COLOR", "") == "" and os.environ.get("TERM", "") != "dumb"
         if use_color:
             C_RESET = "\033[0m"
             C_BRAND = "\033[1;35m"
@@ -457,9 +407,7 @@ class MemoryDB:
             # Separate the project-specific handoff from regular memories
             handoff_topic = None
             if project:
-                handoff_topic = "handoff_" + re.sub(
-                    r"[^a-z0-9_]", "_", project.lower()
-                ).strip("_")
+                handoff_topic = "handoff_" + re.sub(r"[^a-z0-9_]", "_", project.lower()).strip("_")
 
             handoff_row = None
             regular_rows = []
@@ -470,12 +418,7 @@ class MemoryDB:
                     regular_rows.append(r)
 
             durable = [r for r in regular_rows if r["durability"] == "durable"]
-            ephemeral = [
-                r
-                for r in regular_rows
-                if r["durability"] == "ephemeral"
-                and not r["topic"].startswith("handoff_")
-            ]
+            ephemeral = [r for r in regular_rows if r["durability"] == "ephemeral" and not r["topic"].startswith("handoff_")]
 
             lines = []
             if handoff_row:
@@ -527,9 +470,7 @@ class MemoryDB:
         if data.get("task"):
             lines.append(f"Resuming: {data['task'][:120]}")
         if data.get("files"):
-            files = (
-                data["files"] if isinstance(data["files"], list) else [data["files"]]
-            )
+            files = data["files"] if isinstance(data["files"], list) else [data["files"]]
             lines.append(f"Files in progress: {', '.join(str(f) for f in files[:5])}")
         if data.get("last_error"):
             lines.append(f"Last error: {data['last_error'][:120]}")
@@ -579,9 +520,7 @@ class MemoryDB:
             for s in sessions:
                 topic = s["topic"] or "?"
                 branch = s["branch"] or ""
-                lines.append(
-                    f"- {s['captured_at'][:10]} {f'({branch}) ' if branch else ''}{topic[:100]}"
-                )
+                lines.append(f"- {s['captured_at'][:10]} {f'({branch}) ' if branch else ''}{topic[:100]}")
 
         if commits:
             lines.append("Recent commits:")
@@ -616,9 +555,7 @@ class MemoryDB:
         self.conn.commit()
 
     def cleanup_ephemeral(self) -> int:
-        cursor = self.conn.execute(
-            "DELETE FROM memories WHERE durability = 'ephemeral' AND created_at < datetime('now', '-7 days')"
-        )
+        cursor = self.conn.execute("DELETE FROM memories WHERE durability = 'ephemeral' AND created_at < datetime('now', '-7 days')")
         self.conn.commit()
         return cursor.rowcount
 
@@ -640,15 +577,11 @@ class MemoryDB:
         return cursor.rowcount > 0
 
     def forget_all_ephemeral(self) -> int:
-        cursor = self.conn.execute(
-            "DELETE FROM memories WHERE durability = 'ephemeral'"
-        )
+        cursor = self.conn.execute("DELETE FROM memories WHERE durability = 'ephemeral'")
         self.conn.commit()
         return cursor.rowcount
 
-    def save_compaction(
-        self, session_id: str | None, project: str, snapshot: str | None = None
-    ) -> None:
+    def save_compaction(self, session_id: str | None, project: str, snapshot: str | None = None) -> None:
         self.conn.execute(
             "INSERT INTO compactions (session_id, project, snapshot) VALUES (?, ?, ?)",
             (session_id, project, snapshot),
@@ -663,9 +596,7 @@ class MemoryDB:
         return dict(row) if row else None
 
     def compaction_stats(self) -> dict:
-        total = self.conn.execute("SELECT COUNT(*) as c FROM compactions").fetchone()[
-            "c"
-        ]
+        total = self.conn.execute("SELECT COUNT(*) as c FROM compactions").fetchone()["c"]
         by_project = self.conn.execute(
             "SELECT project, COUNT(*) as c FROM compactions GROUP BY project ORDER BY c DESC LIMIT 10"
         ).fetchall()
@@ -695,25 +626,19 @@ class SessionData:
         self.tools: Counter = Counter()
         self._seen_hashes: set[str] = set()
 
-    def add_fact(
-        self, fact_type: str, content: str, source_line: int | None = None
-    ) -> None:
+    def add_fact(self, fact_type: str, content: str, source_line: int | None = None) -> None:
         """Add a fact with inline dedup within the session."""
         h = hashlib.md5(content.encode()).hexdigest()[:12]
         if h in self._seen_hashes:
             return
         self._seen_hashes.add(h)
-        self.facts.append(
-            {"type": fact_type, "content": content, "source_line": source_line}
-        )
+        self.facts.append({"type": fact_type, "content": content, "source_line": source_line})
 
 
 class TranscriptParser:
     """Parses JSONL transcripts and extracts structured data."""
 
-    def parse_file(
-        self, path: Path, project: str, extract_facts: bool = False
-    ) -> SessionData | None:
+    def parse_file(self, path: Path, project: str, extract_facts: bool = False) -> SessionData | None:
         session_id = path.stem
         session = SessionData(session_id, project, str(path))
         self._extract_facts = extract_facts
@@ -745,9 +670,7 @@ class TranscriptParser:
 
         return session
 
-    def _process_user_message(
-        self, obj: dict, session: SessionData, line_num: int, is_first: bool
-    ) -> None:
+    def _process_user_message(self, obj: dict, session: SessionData, line_num: int, is_first: bool) -> None:
         content = obj.get("message", {}).get("content", "")
 
         # Handle tool_result blocks
@@ -765,9 +688,7 @@ class TranscriptParser:
         if text.startswith("<local-command") or text.startswith("<command-name>"):
             return
 
-        clean = re.sub(
-            r"<system-reminder>.*?</system-reminder>", "", text, flags=re.DOTALL
-        ).strip()
+        clean = re.sub(r"<system-reminder>.*?</system-reminder>", "", text, flags=re.DOTALL).strip()
         # Also strip skill/command expansion tags
         clean = re.sub(r"<[^>]+>.*?</[^>]+>", "", clean, flags=re.DOTALL).strip()
         if not clean or len(clean) < 5:
@@ -793,9 +714,7 @@ class TranscriptParser:
                 if pattern.search(clean):
                     for sentence in re.split(r"[.!?\n]", clean):
                         if pattern.search(sentence) and len(sentence.strip()) > 10:
-                            session.add_fact(
-                                "decision", sentence.strip()[:500], line_num
-                            )
+                            session.add_fact("decision", sentence.strip()[:500], line_num)
                             break
                     break
 
@@ -805,52 +724,32 @@ class TranscriptParser:
                     session.add_fact("correction", clean[:500], line_num)
                     break
 
-    def _process_tool_result(
-        self, block: dict, session: SessionData, line_num: int
-    ) -> None:
-        """Extract actual runtime errors from tool_result blocks."""
+    def _process_tool_result(self, block: dict, session: SessionData, line_num: int) -> None:
+        """Capture errors from tool_result blocks. Only trusts is_error=True — semantic judgment is the LLM digest's job."""
         is_error = block.get("is_error", False)
         raw_content = block.get("content", "")
 
         if isinstance(raw_content, list):
-            result_text = " ".join(
-                b.get("text", "") for b in raw_content if isinstance(b, dict)
-            )
+            result_text = " ".join(b.get("text", "") for b in raw_content if isinstance(b, dict))
         elif isinstance(raw_content, str):
             result_text = raw_content
         else:
             return
 
-        # --- Branch: extract from git status/branch output ---
+        # Preserve branch extraction from git status/branch output.
         if not session.branch:
             branch_match = BRANCH_RE.search(result_text)
             if branch_match:
                 session.branch = branch_match.group(1)
 
-        if not (is_error or any(p.search(result_text) for p in ACTUAL_ERROR_PATTERNS)):
+        if not is_error:
             return
 
-        captured = False
-        for error_line in result_text.split("\n"):
-            stripped = error_line.strip()
-            if len(stripped) < 15:
-                continue
-            # Skip false positives (source code, docs)
-            if any(fp.search(stripped) for fp in ERROR_FALSE_POSITIVES):
-                continue
-            if any(p.search(stripped) for p in ACTUAL_ERROR_PATTERNS):
-                session.add_fact("error", stripped[:500], line_num)
-                captured = True
-                break
+        first_line = result_text.strip().split("\n")[0][:500]
+        if len(first_line) >= 15:
+            session.add_fact("error", first_line, line_num)
 
-        if not captured and is_error and len(result_text.strip()) > 15:
-            first_line = result_text.strip().split("\n")[0][:500]
-            if not any(fp.search(first_line) for fp in ERROR_FALSE_POSITIVES):
-                session.add_fact("error", first_line, line_num)
-
-    def _process_assistant_message(
-        self, obj: dict, session: SessionData, line_num: int
-    ) -> None:
+    def _process_assistant_message(self, obj: dict, session: SessionData, line_num: int) -> None:
         content = obj.get("message", {}).get("content", [])
         if not isinstance(content, list):
             return
@@ -935,14 +834,10 @@ def parse_digest_output(text: str, project: str | None = None) -> list[dict]:
             continue
         topic = re.sub(r"[^a-z0-9_]", "_", topic.lower().strip()).strip("_")
         if topic:
-            memories.append(
-                {"topic": topic, "content": content, "durability": durability}
-            )
+            memories.append({"topic": topic, "content": content, "durability": durability})
 
     if handoff_lines and project:
-        handoff_topic = "handoff_" + re.sub(r"[^a-z0-9_]", "_", project.lower()).strip(
-            "_"
-        )
+        handoff_topic = "handoff_" + re.sub(r"[^a-z0-9_]", "_", project.lower()).strip("_")
         memories.append(
             {
                 "topic": handoff_topic,
@@ -961,9 +856,7 @@ def find_transcripts() -> list[tuple[Path, str]]:
         if not project_dir.is_dir():
             continue
         project_name = project_dir.name
-        for jsonl in sorted(
-            project_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True
-        ):
+        for jsonl in sorted(project_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
             results.append((jsonl, project_name))
     return results
 
@@ -973,17 +866,13 @@ def find_current_session() -> tuple[Path, str] | None:
     project_key = cwd.replace("/", "-")
     project_dir = PROJECTS_DIR / project_key
     if not project_dir.is_dir():
-        all_projects = sorted(
-            PROJECTS_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True
-        )
+        all_projects = sorted(PROJECTS_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
         if all_projects:
             project_dir = all_projects[0]
         else:
             return None
 
-    jsonls = sorted(
-        project_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True
-    )
+    jsonls = sorted(project_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
     if jsonls:
         return jsonls[0], project_dir.name
     return None
@@ -995,12 +884,8 @@ def main() -> None:
         epilog="Advanced/internal flags (used by hooks) are hidden. See docs/cli-reference.md.",
     )
     # User-facing flags (4 essentials)
-    parser.add_argument(
-        "--stats", action="store_true", help="Show what engram has learned"
-    )
-    parser.add_argument(
-        "--query", "-q", type=str, metavar="TERM", help="Search captured facts"
-    )
+    parser.add_argument("--stats", action="store_true", help="Show what engram has learned")
+    parser.add_argument("--query", "-q", type=str, metavar="TERM", help="Search captured facts")
     parser.add_argument(
         "--memories",
         nargs="?",
@@ -1008,12 +893,8 @@ def main() -> None:
         metavar="PATTERN",
         help="List learned memories (optional topic pattern)",
     )
-    parser.add_argument(
-        "--forget", type=str, metavar="TOPIC", help="Delete a memory by topic"
-    )
-    parser.add_argument(
-        "--dashboard", action="store_true", help="Open visual dashboard in browser"
-    )
+    parser.add_argument("--forget", type=str, metavar="TOPIC", help="Delete a memory by topic")
+    parser.add_argument("--dashboard", action="store_true", help="Open visual dashboard in browser")
 
     # Hook-internal flags (hidden from --help but still functional)
     parser.add_argument("--all", action="store_true", help=argparse.SUPPRESS)
@@ -1033,9 +914,7 @@ def main() -> None:
     parser.add_argument("--ingest-digest", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--session-id", type=str, help=argparse.SUPPRESS)
     parser.add_argument("--ephemeral", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument(
-        "--ingest-snapshot", action="store_true", help=argparse.SUPPRESS
-    )
+    parser.add_argument("--ingest-snapshot", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--project", type=str, help=argparse.SUPPRESS)
     parser.add_argument(
         "--compactions",
@@ -1068,9 +947,7 @@ def main() -> None:
         if args.stats:
             s = db.stats()
             cs = db.compaction_stats()
-            mem_rows = db.conn.execute(
-                "SELECT durability, COUNT(*) as c FROM memories GROUP BY durability"
-            ).fetchall()
+            mem_rows = db.conn.execute("SELECT durability, COUNT(*) as c FROM memories GROUP BY durability").fetchall()
             mem_counts = {r["durability"]: r["c"] for r in mem_rows}
             durable = mem_counts.get("durable", 0)
             ephemeral = mem_counts.get("ephemeral", 0)
@@ -1080,14 +957,10 @@ def main() -> None:
             ).fetchall()
 
             patterns_dir = Path.home() / ".claude" / "patterns" / "patterns"
-            pattern_count = (
-                len(list(patterns_dir.glob("*.md"))) if patterns_dir.exists() else 0
-            )
+            pattern_count = len(list(patterns_dir.glob("*.md"))) if patterns_dir.exists() else 0
 
             print("engram — what I've learned about you\n")
-            print(
-                f"  {s['sessions']:>5} sessions captured, {cs['total']} compactions processed"
-            )
+            print(f"  {s['sessions']:>5} sessions captured, {cs['total']} compactions processed")
             print(f"  {s['unique_files']:>5} unique files touched")
             print(f"  {durable:>5} preferences remembered (durable)")
             print(f"  {ephemeral:>5} context notes active (ephemeral)")
@@ -1143,10 +1016,7 @@ def main() -> None:
             session_id = args.session_id
             snapshot = text if text else None
             db.save_compaction(session_id, project, snapshot)
-            print(
-                f"Compaction recorded for {project}"
-                + (" with snapshot" if snapshot else "")
-            )
+            print(f"Compaction recorded for {project}" + (" with snapshot" if snapshot else ""))
             return
 
         if args.compactions is not None:
@@ -1164,9 +1034,7 @@ def main() -> None:
                 return
             for r in rows:
                 sid = (r["session_id"] or "?")[:8]
-                print(
-                    f"  {r['compacted_at'][:16]}  {r['project'][:40]:40s}  session={sid}  snapshot={r['has_snapshot']}"
-                )
+                print(f"  {r['compacted_at'][:16]}  {r['project'][:40]:40s}  session={sid}  snapshot={r['has_snapshot']}")
             print(f"\n{len(rows)} compaction events")
             return
 
@@ -1215,9 +1083,7 @@ def main() -> None:
                 skipped += 1
                 continue
 
-            session = transcript_parser.parse_file(
-                path, project, extract_facts=args.extract_facts
-            )
+            session = transcript_parser.parse_file(path, project, extract_facts=args.extract_facts)
             if session is None:
                 skipped += 1
                 continue
@@ -1230,9 +1096,7 @@ def main() -> None:
                 )
 
         if args.all:
-            print(
-                f"Captured {captured} sessions, skipped {skipped} (already captured or trivial)"
-            )
+            print(f"Captured {captured} sessions, skipped {skipped} (already captured or trivial)")
         elif captured == 0 and skipped > 0:
             print("Session already captured")
 
