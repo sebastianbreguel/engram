@@ -93,13 +93,38 @@ def test_project_scoped_inject_surfaces_handoff(tmp_home):
     assert "auth" in result.stdout.lower(), f"project-scoped handoff should surface, got: {result.stdout!r}"
 
 
-def test_semantic_error_regex_does_not_capture_code_lines(tmp_home, tmp_path):
-    """After Task 4: lines that LOOK like 'raise ValueError' in a non-error tool_result
-    should not surface as error memories. The LLM digest handles semantic judgment.
+def test_semantic_error_regex_removed_from_module():
+    """Task 4 contract: the regex lists that distinguish 'real errors' from
+    'code mentioning errors' are gone. The LLM digest handles semantic judgment.
+
+    Fails against current code (both attrs exist), passes after Task 4 deletes them.
     """
+    import importlib
+
+    memcap = importlib.import_module("memcapture")
+    assert not hasattr(memcap, "ACTUAL_ERROR_PATTERNS"), "ACTUAL_ERROR_PATTERNS should be removed — LLM digest handles error judgment"
+    assert not hasattr(memcap, "ERROR_FALSE_POSITIVES"), "ERROR_FALSE_POSITIVES should be removed — no longer needed without regex matching"
+
+
+def test_non_error_tool_result_with_traceback_does_not_capture_fact(tmp_home, tmp_path):
+    """Task 4 behavioral contract: a tool_result with is_error=False containing a
+    Traceback string should NOT produce a facts.type='error' row.
+
+    Current code matches ACTUAL_ERROR_PATTERNS on the Traceback line and captures it.
+    After Task 4, only is_error=True triggers capture. LLM digest handles the rest.
+    """
+    import sqlite3
+
     fake_transcript = tmp_path / "fake.jsonl"
     fake_transcript.write_text(
-        json.dumps({"type": "user", "message": {"content": "edit the file"}})
+        json.dumps({"type": "user", "message": {"content": "run the script please"}})
+        + "\n"
+        + json.dumps(
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "running the script now"}]},
+            }
+        )
         + "\n"
         + json.dumps(
             {
@@ -108,7 +133,7 @@ def test_semantic_error_regex_does_not_capture_code_lines(tmp_home, tmp_path):
                     "content": [
                         {
                             "type": "tool_result",
-                            "content": "274:  raise ValueError('boom')\n275:  except Exception as e:",
+                            "content": "Traceback (most recent call last):\n  File \"/tmp/x.py\", line 3, in <module>\n    raise ValueError('demo')",
                             "is_error": False,
                         }
                     ]
@@ -120,7 +145,8 @@ def test_semantic_error_regex_does_not_capture_code_lines(tmp_home, tmp_path):
     result = _memcap(["--transcript", str(fake_transcript)])
     assert result.returncode == 0
 
-    # Contract: the --memories surface does not expose these code lines as error facts.
-    memories = _memcap(["--memories"])
-    assert memories.returncode == 0
-    assert "raise ValueError" not in memories.stdout, f"code line should not appear as a memory, got: {memories.stdout!r}"
+    db = tmp_home / ".claude" / "memory.db"
+    conn = sqlite3.connect(str(db))
+    error_facts = conn.execute("SELECT content FROM facts WHERE type='error'").fetchall()
+    conn.close()
+    assert error_facts == [], f"non-error tool_result should not produce error facts, got: {error_facts!r}"
