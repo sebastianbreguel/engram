@@ -143,6 +143,7 @@ Each memory has:
 Rules:
 - One fact per line, format: topic | durability | content
 - Be specific, not generic. "prefers uv over pip" not "has package manager preferences"
+- Reuse existing topics when the concept matches — e.g., if "package_manager" already covers uv preferences, update that topic instead of creating "dependency_management" or "uv_preference". Same concept = same topic.
 - Skip routine actions (file reads, git commits, navigation)
 - Max 10 facts per session
 - Output ONLY the facts, no commentary
