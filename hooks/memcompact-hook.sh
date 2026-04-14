@@ -62,7 +62,7 @@ Rules:
 
 # Run in background — fire and forget
 (
-    echo "$CHUNK" | claude --print -p "$PROMPT" 2>/dev/null | uv run "$TOOL" --ingest-snapshot --session-id "$SESSION_ID" --project "$PROJECT_KEY"
+    echo "$CHUNK" | claude --print --model claude-haiku-4-5 -p "$PROMPT" 2>/dev/null | uv run "$TOOL" --ingest-snapshot --session-id "$SESSION_ID" --project "$PROJECT_KEY"
 ) &
 
 exit 0

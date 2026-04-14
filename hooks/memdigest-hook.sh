@@ -84,7 +84,7 @@ Rules:
 
 After the facts, add ONE blank line, then a single handoff paragraph addressed to the NEXT Claude session working in this project. Start with "HANDOFF: " and write 2-4 sentences in natural prose: what were we doing, where did we leave off, what should the next session pick up. Be concrete, not meta.'
 
-    DIGEST=$(echo "$CHUNK" | claude --print -p "$PROMPT" 2>/dev/null || true)
+    DIGEST=$(echo "$CHUNK" | claude --print --model claude-haiku-4-5 -p "$PROMPT" 2>/dev/null || true)
 
     if [ -n "$DIGEST" ]; then
         TOOL="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude}/tools/memcapture.py"
