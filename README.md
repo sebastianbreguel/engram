@@ -87,6 +87,15 @@ Transparency matters when a tool reads your Claude history:
 
 **Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [uv](https://docs.astral.sh/uv/), [jq](https://jqlang.github.io/jq/)
 
+**As a Claude Code plugin (recommended):**
+
+```bash
+# In Claude Code:
+/plugin install engram@sebastianbreguel/engram
+```
+
+**Or clone and run the installer:**
+
 ```bash
 git clone https://github.com/sebastianbreguel/engram.git
 cd engram && ./install.sh

@@ -6,7 +6,7 @@
 set -euo pipefail
 
 CLAUDE_DIR="$HOME/.claude"
-TOOL="$CLAUDE_DIR/tools/memcapture.py"
+TOOL="${CLAUDE_PLUGIN_ROOT:-$CLAUDE_DIR}/tools/memcapture.py"
 
 # Find current session transcript
 CWD="$(pwd)"

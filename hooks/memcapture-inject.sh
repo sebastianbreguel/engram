@@ -13,11 +13,13 @@ if [ -n "$CWD" ]; then
     PROJECT_KEY=$(echo "$CWD" | sed 's|/|-|g')
 fi
 
+TOOL="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude}/tools/memcapture.py"
+
 # Generate inject context
 if [ -n "$PROJECT_KEY" ]; then
-    CONTEXT=$(uv run "$HOME/.claude/tools/memcapture.py" --inject --inject-project="$PROJECT_KEY" 2>/dev/null || true)
+    CONTEXT=$(uv run "$TOOL" --inject --inject-project="$PROJECT_KEY" 2>/dev/null || true)
 else
-    CONTEXT=$(uv run "$HOME/.claude/tools/memcapture.py" --inject 2>/dev/null || true)
+    CONTEXT=$(uv run "$TOOL" --inject 2>/dev/null || true)
 fi
 
 if [ -n "$CONTEXT" ]; then

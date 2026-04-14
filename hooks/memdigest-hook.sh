@@ -87,7 +87,8 @@ After the facts, add ONE blank line, then a single handoff paragraph addressed t
     DIGEST=$(echo "$CHUNK" | claude --print -p "$PROMPT" 2>/dev/null || true)
 
     if [ -n "$DIGEST" ]; then
-        echo "$DIGEST" | uv run "$HOME/.claude/tools/memcapture.py" --ingest-digest --session-id="$SESSION_ID" --project="$PROJECT" 2>/dev/null || true
+        TOOL="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude}/tools/memcapture.py"
+        echo "$DIGEST" | uv run "$TOOL" --ingest-digest --session-id="$SESSION_ID" --project="$PROJECT" 2>/dev/null || true
     fi
 ) &
 

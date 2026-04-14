@@ -17,6 +17,7 @@ fi
 trap 'rmdir "$LOCKFILE" 2>/dev/null' EXIT
 
 # Run pattern detection in background, log errors
-(uv run "$HOME/.claude/tools/mempatterns.py" --update 2>>"$LOGFILE") &
+TOOL="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude}/tools/mempatterns.py"
+(uv run "$TOOL" --update 2>>"$LOGFILE") &
 
 exit 0

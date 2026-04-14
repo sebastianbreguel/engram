@@ -22,6 +22,7 @@ if [ -z "$TRANSCRIPT" ]; then
 fi
 
 # Run capture in background — fire and forget
-nohup uv run "$HOME/.claude/tools/memcapture.py" --transcript "$TRANSCRIPT" >/dev/null 2>&1 &
+TOOLS_DIR="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude}/tools"
+nohup uv run "$TOOLS_DIR/memcapture.py" --transcript "$TRANSCRIPT" >/dev/null 2>&1 &
 
 exit 0
