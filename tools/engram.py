@@ -366,29 +366,21 @@ def _dispatch_on_session_start(_args: argparse.Namespace) -> int:
     import memcapture
 
     buf = io.StringIO()
-    old_stdout = sys.stdout
-    sys.stdout = buf
-    try:
-        memcapture.run(_memcap_ns(inject=True, inject_project=project_key or None))
-    finally:
-        sys.stdout = old_stdout
+    memcapture.run(_memcap_ns(inject=True, inject_project=project_key or None), out=buf)
     context = buf.getvalue()
 
     banner = ""
     if os.environ.get("ENGRAM_SHOW_BANNER", "1") == "1":
         buf2 = io.StringIO()
-        sys.stdout = buf2
-        try:
-            display_name = Path(cwd).name if cwd else ""
-            memcapture.run(
-                _memcap_ns(
-                    banner=True,
-                    banner_project=project_key or None,
-                    banner_name=display_name or None,
-                )
-            )
-        finally:
-            sys.stdout = old_stdout
+        display_name = Path(cwd).name if cwd else ""
+        memcapture.run(
+            _memcap_ns(
+                banner=True,
+                banner_project=project_key or None,
+                banner_name=display_name or None,
+            ),
+            out=buf2,
+        )
         banner = buf2.getvalue().strip()
 
     out: dict = {
