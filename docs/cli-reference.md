@@ -14,6 +14,12 @@ uv run ~/.claude/tools/memcapture.py -q "prefiero"     # works in any language
 uv run ~/.claude/tools/memcapture.py --stats            # global statistics
 uv run ~/.claude/tools/memcapture.py --recent 10        # last N sessions with topics
 
+# Dashboard
+uv run ~/.claude/tools/memcapture.py --dashboard         # open visual dashboard in browser
+uv run ~/.claude/tools/memdashboard.py                   # direct (same result)
+uv run ~/.claude/tools/memdashboard.py -o /tmp/dash.html # custom output path
+uv run ~/.claude/tools/memdashboard.py --no-open         # generate without opening
+
 # Memory management
 uv run ~/.claude/tools/memcapture.py --memories          # list all memories
 uv run ~/.claude/tools/memcapture.py --memories "test_*"  # filter by topic

@@ -918,6 +918,9 @@ def main() -> None:
     parser.add_argument(
         "--forget", type=str, metavar="TOPIC", help="Delete a memory by topic"
     )
+    parser.add_argument(
+        "--dashboard", action="store_true", help="Open visual dashboard in browser"
+    )
 
     # Hook-internal flags (hidden from --help but still functional)
     parser.add_argument("--all", action="store_true", help=argparse.SUPPRESS)
@@ -951,6 +954,11 @@ def main() -> None:
     transcript_parser = TranscriptParser()
 
     try:
+        if args.dashboard:
+            dashboard_tool = Path(__file__).parent / "memdashboard.py"
+            subprocess.run(["uv", "run", str(dashboard_tool)], check=False)
+            return
+
         if args.query:
             results = db.search(args.query)
             if not results:

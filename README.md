@@ -115,6 +115,7 @@ uv run ~/.claude/tools/memcapture.py --stats            # global statistics
 uv run ~/.claude/tools/memcapture.py -q "react"         # full-text search
 uv run ~/.claude/tools/memcapture.py --memories          # list learned memories
 uv run ~/.claude/tools/memcapture.py --forget "topic"    # delete a memory
+uv run ~/.claude/tools/memcapture.py --dashboard         # open visual dashboard
 ```
 
 ## Pattern detection
