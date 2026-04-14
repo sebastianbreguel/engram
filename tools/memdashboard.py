@@ -17,6 +17,7 @@ import json
 import sqlite3
 import webbrowser
 from collections import Counter
+from datetime import date, timedelta
 from pathlib import Path
 
 DB_PATH = Path.home() / ".claude" / "memory.db"
@@ -67,13 +68,30 @@ def _ignore_where_and(
 
 
 def query_activity_data(conn: sqlite3.Connection, ignore_list: list[str]) -> list[dict]:
-    """Sessions per day for activity heatmap."""
+    """Sessions per day for activity heatmap.
+
+    Uses transcript file mtime for the real session date when available,
+    falling back to captured_at (which may be bulk-import date).
+    """
+    import os
+
     where, params = _ignore_where(ignore_list)
     rows = conn.execute(
-        f"SELECT date(captured_at) as day, COUNT(*) as count FROM sessions{where} GROUP BY day ORDER BY day",
+        f"SELECT transcript_path, captured_at FROM sessions{where}",
         params,
     ).fetchall()
-    return [{"day": r["day"], "count": r["count"]} for r in rows]
+
+    day_counts: Counter[str] = Counter()
+    for r in rows:
+        tp = r["transcript_path"]
+        if tp and os.path.exists(tp):
+            mtime = os.path.getmtime(tp)
+            day = date.fromtimestamp(mtime).isoformat()
+        else:
+            day = r["captured_at"][:10]
+        day_counts[day] += 1
+
+    return [{"day": d, "count": c} for d, c in sorted(day_counts.items())]
 
 
 def query_projects(conn: sqlite3.Connection, ignore_list: list[str]) -> list[dict]:
@@ -434,10 +452,96 @@ def _build_html(
     errors,
     patterns,
     profiles,
+    activity,
 ) -> str:
     durable_count = sum(1 for m in memories if m["durability"] == "durable")
     ephemeral_count = sum(1 for m in memories if m["durability"] == "ephemeral")
     pattern_count = len(patterns)
+
+    # ── Activity heatmap (GitHub-style, last 52 weeks) ──
+    activity_map = {a["day"]: a["count"] for a in activity}
+    today = date.today()
+    # Start from the Sunday 52 weeks ago
+    start = today - timedelta(
+        days=today.weekday() + 1 + 52 * 7
+    )  # previous Sunday, 52 weeks back
+    if start.weekday() != 6:
+        start -= timedelta(days=(start.weekday() + 1) % 7)
+
+    # Color levels for the heatmap
+    heatmap_colors = ["var(--surface2)", "#dbeafe", "#93c5fd", "#3b82f6", "#1d4ed8"]
+    max_count = max((a["count"] for a in activity), default=1) or 1
+
+    def _heat_color(count):
+        if count == 0:
+            return heatmap_colors[0]
+        ratio = count / max_count
+        if ratio <= 0.25:
+            return heatmap_colors[1]
+        elif ratio <= 0.5:
+            return heatmap_colors[2]
+        elif ratio <= 0.75:
+            return heatmap_colors[3]
+        return heatmap_colors[4]
+
+    # Build weeks grid
+    day_names = ["", "Mon", "", "Wed", "", "Fri", ""]
+    heatmap_labels_html = "".join(
+        f'<div class="heatmap-label">{d}</div>' for d in day_names
+    )
+
+    weeks_html = ""
+    month_markers = []
+    current = start
+    week_idx = 0
+    while current <= today:
+        week_html = ""
+        for dow in range(7):
+            d = current + timedelta(days=dow)
+            if d > today:
+                week_html += '<div class="heatmap-day" style="visibility:hidden"></div>'
+            else:
+                ds = d.isoformat()
+                c = activity_map.get(ds, 0)
+                bg = _heat_color(c)
+                title = f"{ds}: {c} session{'s' if c != 1 else ''}"
+                week_html += f'<div class="heatmap-day" style="background:{bg}" data-count="{c}" title="{title}"></div>'
+            # Track first day of each month for labels
+            if dow == 0 and d.day <= 7 and d <= today:
+                month_markers.append((week_idx, d.strftime("%b")))
+        weeks_html += f'<div class="heatmap-week">{week_html}</div>'
+        current += timedelta(days=7)
+        week_idx += 1
+
+    # Build month labels positioned by week index
+    months_html = ""
+    prev_end = 0
+    for widx, mname in month_markers:
+        offset_px = widx * 16  # 13px box + 3px gap
+        if offset_px > prev_end + 20:
+            months_html += f'<div class="heatmap-month" style="position:absolute;left:{offset_px}px">{mname}</div>'
+            prev_end = offset_px + 24
+
+    total_sessions_year = sum(
+        a["count"] for a in activity if a["day"] >= start.isoformat()
+    )
+    heatmap_html = f"""<div class="heatmap-wrap">
+<div style="position:relative;height:18px;margin-left:28px;margin-bottom:6px">{months_html}</div>
+<div style="display:flex">
+<div class="heatmap-labels">{heatmap_labels_html}</div>
+<div class="heatmap-grid">{weeks_html}</div>
+</div>
+<div class="heatmap-legend">
+<span>{total_sessions_year} sessions in the last year</span>
+<span style="margin-left:12px">Less</span>
+<div class="heatmap-legend-box" style="background:{heatmap_colors[0]}"></div>
+<div class="heatmap-legend-box" style="background:{heatmap_colors[1]}"></div>
+<div class="heatmap-legend-box" style="background:{heatmap_colors[2]}"></div>
+<div class="heatmap-legend-box" style="background:{heatmap_colors[3]}"></div>
+<div class="heatmap-legend-box" style="background:{heatmap_colors[4]}"></div>
+<span>More</span>
+</div>
+</div>"""
 
     facts_pills = ""
     fact_colors = {
@@ -661,6 +765,24 @@ body {{ font-family:'Inter',system-ui,sans-serif; background:var(--bg); color:va
 
 .empty-state {{ color:var(--text-muted); font-size:13px; font-style:italic; padding:20px 0; }}
 
+/* ── Activity Heatmap ── */
+.heatmap-wrap {{ margin-bottom:48px; overflow-x:auto; }}
+.heatmap-grid {{ display:flex; gap:3px; }}
+.heatmap-week {{ display:flex; flex-direction:column; gap:3px; }}
+.heatmap-day {{
+    width:13px; height:13px; border-radius:2px;
+    background:var(--surface2);
+    transition: outline 0.15s;
+}}
+.heatmap-day:hover {{ outline:2px solid var(--accent); outline-offset:1px; }}
+.heatmap-day[data-count="0"] {{ background:var(--surface2); }}
+.heatmap-labels {{ display:flex; gap:3px; flex-direction:column; margin-right:8px; padding-top:0; }}
+.heatmap-label {{ height:13px; font-size:9px; color:var(--text-muted); line-height:13px; font-weight:500; }}
+.heatmap-months {{ display:flex; gap:3px; margin-left:28px; margin-bottom:6px; }}
+.heatmap-month {{ font-size:10px; color:var(--text-muted); font-weight:500; }}
+.heatmap-legend {{ display:flex; align-items:center; gap:6px; margin-top:12px; justify-content:flex-end; font-size:11px; color:var(--text-muted); }}
+.heatmap-legend-box {{ width:13px; height:13px; border-radius:2px; }}
+
 /* ── Footer ── */
 .footer {{
     text-align:center;
@@ -690,6 +812,11 @@ body {{ font-family:'Inter',system-ui,sans-serif; background:var(--bg); color:va
 </div>
 
 <div class="container">
+
+<!-- Activity Heatmap -->
+<div class="section-heading">Activity</div>
+<div class="section-desc">Your coding sessions over the past year.</div>
+{heatmap_html}
 
 <!-- How you'd remember it -->
 <div class="section-heading">How you'd remember it&mdash;<br>for your AI.</div>
@@ -835,6 +962,7 @@ def generate_html(output_path: Path) -> None:
     ignore_list = load_ignore_list()
 
     stats = query_stats(conn, ignore_list)
+    activity = query_activity_data(conn, ignore_list)
     projects = query_projects(conn, ignore_list)
     tools = query_tools(conn, ignore_list)
     memories = query_memories(conn)
@@ -858,6 +986,7 @@ def generate_html(output_path: Path) -> None:
         errors,
         patterns,
         profiles,
+        activity,
     )
     output_path.write_text(html, encoding="utf-8")
     print(f"Dashboard generated: {output_path}")
