@@ -4,73 +4,103 @@
 <path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker>
 </defs>
 <rect width="1400" height="900" fill="#ffffff"/>
+
+<!-- Claude Code column -->
 <rect x="80" y="220" width="240" height="460" rx="8" fill="#e7f5ff" stroke="#1971c2" stroke-width="2"/>
-<text x="200.0" y="424.4" font-size="16" fill="#1971c2" text-anchor="middle">Claude Code</text>
-<text x="200.0" y="445.2" font-size="16" fill="#1971c2" text-anchor="middle">session</text>
-<text x="200.0" y="466.0" font-size="16" fill="#1971c2" text-anchor="middle"></text>
-<text x="200.0" y="486.79999999999995" font-size="16" fill="#1971c2" text-anchor="middle">(context window)</text>
+<text x="200" y="424.4" font-size="16" fill="#1971c2" text-anchor="middle">Claude Code</text>
+<text x="200" y="445.2" font-size="16" fill="#1971c2" text-anchor="middle">session</text>
+<text x="200" y="486.8" font-size="16" fill="#1971c2" text-anchor="middle">(context window)</text>
+
+<!-- Hook column (2 boxes only) -->
 <rect x="420" y="220" width="280" height="70" rx="8" fill="#fff3bf" stroke="#f59f00" stroke-width="2"/>
-<text x="560.0" y="250.8" font-size="14" fill="#f59f00" text-anchor="middle">SessionStart</text>
-<text x="560.0" y="269.0" font-size="14" fill="#f59f00" text-anchor="middle">memcapture-inject.sh</text>
-<rect x="420" y="350" width="280" height="60" rx="8" fill="#fff3bf" stroke="#f59f00" stroke-width="2"/>
-<text x="560.0" y="384.9" font-size="14" fill="#f59f00" text-anchor="middle">memcapture-hook.sh</text>
-<rect x="420" y="430" width="280" height="60" rx="8" fill="#fff3bf" stroke="#f59f00" stroke-width="2"/>
-<text x="560.0" y="464.9" font-size="14" fill="#f59f00" text-anchor="middle">memdigest-hook.sh</text>
-<rect x="420" y="510" width="280" height="60" rx="8" fill="#fff3bf" stroke="#f59f00" stroke-width="2"/>
-<text x="560.0" y="544.9" font-size="14" fill="#f59f00" text-anchor="middle">mempatterns-hook.sh</text>
+<text x="560" y="250.8" font-size="14" fill="#f59f00" text-anchor="middle">SessionStart</text>
+<text x="560" y="269.0" font-size="14" fill="#f59f00" text-anchor="middle">engram.py on-session-start</text>
+
+<rect x="420" y="400" width="280" height="170" rx="8" fill="#fff3bf" stroke="#f59f00" stroke-width="2"/>
+<text x="560" y="430.8" font-size="14" fill="#f59f00" text-anchor="middle">PreCompact</text>
+<text x="560" y="449.0" font-size="14" fill="#f59f00" text-anchor="middle">engram.py on-precompact</text>
+<text x="560" y="485" font-size="11" fill="#8a6a00" text-anchor="middle">1. capture     (sync)</text>
+<text x="560" y="503" font-size="11" fill="#8a6a00" text-anchor="middle">2. digest + snapshot  (fire-and-forget)</text>
+<text x="560" y="521" font-size="11" fill="#8a6a00" text-anchor="middle">3. patterns    (sync, on previous session)</text>
+<text x="560" y="548" font-size="10" fill="#8a6a00" text-anchor="middle">collision absorber: busy_timeout 5s + UNIQUE(topic)</text>
+
+<!-- Tools column -->
 <rect x="760" y="350" width="300" height="60" rx="8" fill="#ffe8cc" stroke="#fd7e14" stroke-width="2"/>
-<text x="910.0" y="376.1" font-size="13" fill="#fd7e14" text-anchor="middle">memcapture.py  (structural)</text>
-<text x="910.0" y="393.0" font-size="13" fill="#fd7e14" text-anchor="middle">regex · files · tools · errors</text>
+<text x="910" y="376.1" font-size="13" fill="#fd7e14" text-anchor="middle">memcapture.py  (structural)</text>
+<text x="910" y="393.0" font-size="13" fill="#fd7e14" text-anchor="middle">sessions · facts · files · tools</text>
+
 <rect x="760" y="430" width="300" height="60" rx="8" fill="#ffe8cc" stroke="#fd7e14" stroke-width="2"/>
-<text x="910.0" y="456.1" font-size="13" fill="#fd7e14" text-anchor="middle">claude --print  (LLM digest)</text>
-<text x="910.0" y="473.0" font-size="13" fill="#fd7e14" text-anchor="middle">atomic memories · handoff</text>
+<text x="910" y="456.1" font-size="13" fill="#fd7e14" text-anchor="middle">claude --print  (Haiku 4.5)</text>
+<text x="910" y="473.0" font-size="13" fill="#fd7e14" text-anchor="middle">digest · snapshot · handoff</text>
+
 <rect x="760" y="510" width="300" height="60" rx="8" fill="#ffe8cc" stroke="#fd7e14" stroke-width="2"/>
-<text x="910.0" y="536.1" font-size="13" fill="#fd7e14" text-anchor="middle">mempatterns.py  (emergent)</text>
-<text x="910.0" y="553.0" font-size="13" fill="#fd7e14" text-anchor="middle">co-edit · tool-bias · recurring errors</text>
+<text x="910" y="536.1" font-size="13" fill="#fd7e14" text-anchor="middle">mempatterns.py  (emergent)</text>
+<text x="910" y="553.0" font-size="13" fill="#fd7e14" text-anchor="middle">co-edit · tool-bias · recurring errors</text>
+
+<!-- Storage column -->
 <rect x="1120" y="220" width="220" height="260" rx="8" fill="#f3d9fa" stroke="#be4bdb" stroke-width="2"/>
-<text x="1230.0" y="295.4" font-size="13" fill="#be4bdb" text-anchor="middle">memory.db</text>
-<text x="1230.0" y="312.29999999999995" font-size="13" fill="#be4bdb" text-anchor="middle">(SQLite + FTS5)</text>
-<text x="1230.0" y="329.2" font-size="13" fill="#be4bdb" text-anchor="middle"></text>
-<text x="1230.0" y="346.09999999999997" font-size="13" fill="#be4bdb" text-anchor="middle">sessions</text>
-<text x="1230.0" y="363.0" font-size="13" fill="#be4bdb" text-anchor="middle">facts · memories</text>
-<text x="1230.0" y="379.9" font-size="13" fill="#be4bdb" text-anchor="middle">compactions</text>
-<text x="1230.0" y="396.79999999999995" font-size="13" fill="#be4bdb" text-anchor="middle">files_touched</text>
-<text x="1230.0" y="413.7" font-size="13" fill="#be4bdb" text-anchor="middle">tool_usage</text>
+<text x="1230" y="295.4" font-size="13" fill="#be4bdb" text-anchor="middle">memory.db</text>
+<text x="1230" y="312.3" font-size="13" fill="#be4bdb" text-anchor="middle">(SQLite + FTS5)</text>
+<text x="1230" y="346.1" font-size="13" fill="#be4bdb" text-anchor="middle">sessions</text>
+<text x="1230" y="363.0" font-size="13" fill="#be4bdb" text-anchor="middle">facts · memories</text>
+<text x="1230" y="379.9" font-size="13" fill="#be4bdb" text-anchor="middle">compactions</text>
+<text x="1230" y="396.8" font-size="13" fill="#be4bdb" text-anchor="middle">files_touched</text>
+<text x="1230" y="413.7" font-size="13" fill="#be4bdb" text-anchor="middle">tool_usage</text>
+
 <rect x="1120" y="510" width="220" height="60" rx="8" fill="#f3d9fa" stroke="#be4bdb" stroke-width="2"/>
-<text x="1230.0" y="536.1" font-size="13" fill="#be4bdb" text-anchor="middle">patterns/*.md</text>
-<text x="1230.0" y="553.0" font-size="13" fill="#be4bdb" text-anchor="middle">(Obsidian wiki)</text>
+<text x="1230" y="536.1" font-size="13" fill="#be4bdb" text-anchor="middle">patterns/*.md</text>
+<text x="1230" y="553.0" font-size="13" fill="#be4bdb" text-anchor="middle">(Obsidian wiki)</text>
+
+<!-- Read-only consumers -->
 <rect x="760" y="610" width="300" height="55" rx="8" fill="#e3fafc" stroke="#15aabf" stroke-width="2"/>
-<text x="910.0" y="642.05" font-size="13" fill="#15aabf" text-anchor="middle">memdashboard.py  →  HTML report</text>
+<text x="910" y="642.05" font-size="13" fill="#15aabf" text-anchor="middle">memdashboard.py  →  HTML report</text>
+
 <rect x="760" y="685" width="300" height="55" rx="8" fill="#e3fafc" stroke="#15aabf" stroke-width="2"/>
-<text x="910.0" y="717.05" font-size="13" fill="#15aabf" text-anchor="middle">memcompile.py  →  health · concepts</text>
+<text x="910" y="717.05" font-size="13" fill="#15aabf" text-anchor="middle">memcompile.py  →  concepts (deprecated)</text>
+
+<!-- Legend base -->
 <rect x="80" y="760" width="1260" height="100" rx="8" fill="#f8f9fa" stroke="#adb5bd" stroke-width="1"/>
+
+<!-- Arrows -->
+<!-- SessionStart: memory.db → engram.py inject → Claude Code -->
 <line x1="1120" y1="255" x2="700" y2="255" stroke="#1971c2" stroke-width="2" opacity="1.0" marker-end="url(#arr)"/>
 <line x1="420" y1="255" x2="320" y2="255" stroke="#1971c2" stroke-width="2" opacity="1.0" marker-end="url(#arr)"/>
-<line x1="320" y1="380" x2="420" y2="380" stroke="#f59f00" stroke-width="2" opacity="1.0" marker-end="url(#arr)"/>
-<line x1="320" y1="460" x2="420" y2="460" stroke="#f59f00" stroke-width="2" opacity="1.0" marker-end="url(#arr)"/>
-<line x1="320" y1="540" x2="420" y2="540" stroke="#f59f00" stroke-width="2" opacity="1.0" marker-end="url(#arr)"/>
-<line x1="700" y1="380" x2="760" y2="380" stroke="#fd7e14" stroke-width="2" opacity="1.0" marker-end="url(#arr)"/>
-<line x1="700" y1="460" x2="760" y2="460" stroke="#fd7e14" stroke-width="2" opacity="1.0" marker-end="url(#arr)"/>
-<line x1="700" y1="540" x2="760" y2="540" stroke="#fd7e14" stroke-width="2" opacity="1.0" marker-end="url(#arr)"/>
+
+<!-- PreCompact: Claude Code session → engram.py on-precompact -->
+<line x1="320" y1="485" x2="420" y2="485" stroke="#f59f00" stroke-width="2" opacity="1.0" marker-end="url(#arr)"/>
+
+<!-- engram.py on-precompact → 3 tool boxes -->
+<line x1="700" y1="420" x2="760" y2="380" stroke="#fd7e14" stroke-width="2" opacity="1.0" marker-end="url(#arr)"/>
+<line x1="700" y1="485" x2="760" y2="460" stroke="#fd7e14" stroke-width="2" opacity="1.0" marker-end="url(#arr)"/>
+<line x1="700" y1="550" x2="760" y2="540" stroke="#fd7e14" stroke-width="2" opacity="1.0" marker-end="url(#arr)"/>
+
+<!-- Tools → Storage -->
 <line x1="1060" y1="380" x2="1120" y2="380" stroke="#be4bdb" stroke-width="2" opacity="1.0" marker-end="url(#arr)"/>
-<line x1="1060" y1="460" x2="1120" y2="460" stroke="#be4bdb" stroke-width="2" opacity="1.0" marker-end="url(#arr)"/>
+<line x1="1060" y1="460" x2="1120" y2="380" stroke="#be4bdb" stroke-width="2" opacity="1.0" marker-end="url(#arr)"/>
 <line x1="1060" y1="540" x2="1120" y2="540" stroke="#be4bdb" stroke-width="2" opacity="1.0" marker-end="url(#arr)"/>
+
+<!-- Consumers read -->
 <line x1="1220" y1="480" x2="1070" y2="637" stroke="#15aabf" stroke-width="1" opacity="0.6" marker-end="url(#arr)"/>
 <line x1="1220" y1="480" x2="1070" y2="712" stroke="#15aabf" stroke-width="1" opacity="0.6" marker-end="url(#arr)"/>
+
+<!-- Labels -->
 <text x="440" y="46.0" font-size="26" fill="#1a1a1a">claude-engram — session memory architecture</text>
-<text x="430" y="74.0" font-size="14" fill="#666666">PreCompact writes · SessionStart reads · ~350 ambient tokens</text>
+<text x="430" y="74.0" font-size="14" fill="#666666">Two hooks, one entrypoint (engram.py). PreCompact writes · SessionStart reads · ~350 ambient tokens</text>
 <text x="130" y="136.0" font-size="16" fill="#1971c2">Claude Code</text>
-<text x="470" y="136.0" font-size="16" fill="#f59f00">Hooks (shell)</text>
-<text x="790" y="136.0" font-size="16" fill="#fd7e14">Tools (python)</text>
+<text x="470" y="136.0" font-size="16" fill="#f59f00">Hooks</text>
+<text x="790" y="136.0" font-size="16" fill="#fd7e14">Work (python)</text>
 <text x="1150" y="136.0" font-size="16" fill="#be4bdb">Storage</text>
-<text x="180" y="334.0" font-size="14" fill="#f59f00">PreCompact ↓</text>
+
+<text x="180" y="394.0" font-size="14" fill="#f59f00">PreCompact ↓</text>
 <text x="180" y="214.0" font-size="14" fill="#f59f00">SessionStart ↑</text>
 <text x="760" y="602.0" font-size="12" fill="#15aabf">consumers (read-only)</text>
 <text x="840" y="242.0" font-size="12" fill="#1971c2">reads</text>
 <text x="328" y="271.0" font-size="11" fill="#1971c2">injects</text>
 <text x="328" y="285.3" font-size="11" fill="#1971c2">&lt;session-memory&gt;</text>
 <text x="328" y="299.6" font-size="11" fill="#1971c2">+ &lt;handoff&gt;</text>
+
 <text x="100" y="787.0" font-size="12" fill="#495057">Registered in .claude-plugin/plugin.json + hooks/hooks.json  (dual-compat via $CLAUDE_PLUGIN_ROOT | $HOME/.claude)</text>
-<text x="100" y="817.0" font-size="12" fill="#495057">Legend:  ─── solid = data flow    ┄┄┄ faded = read-only consumer    ↑ SessionStart read    ↓ PreCompact write</text>
-<text x="100" y="842.0" font-size="12" fill="#495057">Skills:  /memclean · /patterns · /reflect     Entry:  install.sh → ~/.claude/{hooks,tools,skills}/     Repo:  sebastianbreguel/claude-engram</text>
+<text x="100" y="808.0" font-size="12" fill="#495057">Orchestration: engram.py on-precompact = capture (sync) → digest+snapshot (fire-and-forget Haiku 4.5) → patterns (sync, on prev session)</text>
+<text x="100" y="829.0" font-size="12" fill="#495057">Legend:  ─── solid = data flow    ┄┄┄ faded = read-only consumer    ↑ SessionStart read    ↓ PreCompact write</text>
+<text x="100" y="850.0" font-size="12" fill="#495057">Skills:  /memclean · /patterns · /reflect     Entry:  install.sh → ~/.claude/{tools,skills}/     Repo:  sebastianbreguel/claude-engram</text>
 </svg>

@@ -1,140 +1,156 @@
 # CLI Reference
 
-## memcapture.py
+Everything goes through `engram.py`, installed at `~/.claude/tools/engram.py` (or `${CLAUDE_PLUGIN_ROOT}/tools/engram.py` when used as a Claude Code plugin).
+
+All invocations use `uv run` — the script declares its dependencies inline (`# /// script`), so no venv activation needed.
+
+## Everyday commands
 
 ```bash
-# Capture
-uv run ~/.claude/tools/memcapture.py                    # capture current session
-uv run ~/.claude/tools/memcapture.py --all              # capture all uncaptured sessions
-uv run ~/.claude/tools/memcapture.py --transcript FILE  # capture specific transcript
+# Inspect what claude-engram knows
+uv run ~/.claude/tools/engram.py stats              # counts, durability split, projects
+uv run ~/.claude/tools/engram.py memories           # list all learned memories
+uv run ~/.claude/tools/engram.py forget <topic>     # delete a memory by topic
 
-# Query
-uv run ~/.claude/tools/memcapture.py -q "react"        # FTS5 full-text search
-uv run ~/.claude/tools/memcapture.py -q "prefiero"     # works in any language
-uv run ~/.claude/tools/memcapture.py --stats            # global statistics
-uv run ~/.claude/tools/memcapture.py --recent 10        # last N sessions with topics
+# Visualize
+uv run ~/.claude/tools/engram.py dashboard          # generate + open HTML dashboard
+uv run ~/.claude/tools/engram.py dashboard --output /tmp/d.html --no-open
 
-# Dashboard
-uv run ~/.claude/tools/memcapture.py --dashboard         # open visual dashboard in browser
-uv run ~/.claude/tools/memdashboard.py                   # direct (same result)
-uv run ~/.claude/tools/memdashboard.py -o /tmp/dash.html # custom output path
-uv run ~/.claude/tools/memdashboard.py --no-open         # generate without opening
-
-# Memory management
-uv run ~/.claude/tools/memcapture.py --memories          # list all memories
-uv run ~/.claude/tools/memcapture.py --memories "test_*"  # filter by topic
-uv run ~/.claude/tools/memcapture.py --forget "pkg_mgr"   # delete by topic
-uv run ~/.claude/tools/memcapture.py --forget --ephemeral  # clear all ephemeral
-
-# Inject
-uv run ~/.claude/tools/memcapture.py --inject                              # all projects
-uv run ~/.claude/tools/memcapture.py --inject --inject-project="my-proj"   # scoped
-
-# Compaction
-uv run ~/.claude/tools/memcapture.py --compactions           # list compaction events
-uv run ~/.claude/tools/memcapture.py --compactions "my-proj"  # filter by project
+# Pattern wiki (emergent, opt-in exploration)
+uv run ~/.claude/tools/engram.py patterns --report   # detected file co-edits, tool bias, recurring errors
+uv run ~/.claude/tools/engram.py patterns --status   # wiki stats
+uv run ~/.claude/tools/engram.py patterns --update   # rebuild wiki (normally happens on PreCompact)
 ```
 
-## memcompile.py
+## Capture (manual)
+
+Capture normally runs on PreCompact, but you can run it by hand for backfill or testing:
 
 ```bash
-uv run ~/.claude/tools/memcompile.py              # full compile (concepts + health)
-uv run ~/.claude/tools/memcompile.py --lint-only  # health checks only
-uv run ~/.claude/tools/memcompile.py --dry-run    # show what would compile
+uv run ~/.claude/tools/engram.py capture                     # capture current session
+uv run ~/.claude/tools/engram.py capture --all               # backfill all uncaptured transcripts
+uv run ~/.claude/tools/engram.py capture --transcript FILE   # capture a specific .jsonl
 ```
 
-Requires `ANTHROPIC_API_KEY` for concept compilation (uses claude-sonnet for one call).
+## Inject (what SessionStart sees)
+
+```bash
+uv run ~/.claude/tools/engram.py inject                           # durable only (global)
+uv run ~/.claude/tools/engram.py inject --project my-proj-key     # durable + ephemeral + snapshot
+```
+
+## Digest / snapshot (plumbing)
+
+These normally run as fire-and-forget subprocesses spawned by the PreCompact hook. You'd only run them manually if you're piping an external digest:
+
+```bash
+# Ingest a digest produced outside the hook (format: `topic | durability | content` lines, blank line, "HANDOFF: ...")
+cat digest.txt | uv run ~/.claude/tools/engram.py digest --session-id <sid> --project <project-key>
+
+# Ingest a snapshot (JSON)
+cat snapshot.json | uv run ~/.claude/tools/engram.py snapshot --session-id <sid> --project <project-key>
+```
+
+## Hooks (called by Claude Code, not by you)
+
+```bash
+uv run ~/.claude/tools/engram.py on-precompact      # called by Claude Code on compaction
+uv run ~/.claude/tools/engram.py on-session-start   # called by Claude Code on session start
+```
+
+If you ever need to test hook logic by hand, pipe the hook payload to stdin:
+
+```bash
+echo '{"session_id":"abc","cwd":"/path/to/project"}' | \
+  uv run ~/.claude/tools/engram.py on-session-start
+```
+
+## Deprecated — `compile` / `export-concepts`
+
+```bash
+uv run ~/.claude/tools/engram.py compile              # manual cross-project compile (deprecated)
+uv run ~/.claude/tools/engram.py compile --lint-only
+uv run ~/.claude/tools/engram.py export-concepts      # regenerate ~/.claude/compiled-knowledge/concepts.md
+```
+
+These print a deprecation notice. v2 replaces the markdown artifact with an automatic cross-project `concepts` table in `memory.db`. See `CHANGELOG.md`.
 
 ## Skills (on-demand, zero cost until invoked)
 
 | Command | What it does |
 |---|---|
-| `/memclean` | Consolidates memory files, prunes stale entries, mines transcripts for missed facts |
-| `/reflect` | Analyzes last 5 sessions, detects patterns (2+ = pattern, 3+ = strong), proposes CLAUDE.md rules. **Advisory only — never writes.** |
+| `/memclean` | Consolidate memory files, prune stale entries, mine transcripts for missed facts |
+| `/reflect`  | Analyze recent sessions, detect patterns, propose CLAUDE.md rules. Advisory — never writes |
+| `/patterns` | Browse the `~/.claude/patterns/` wiki from inside Claude Code |
 
-## Token Budget
+## Token budget
 
 | Component | Tokens | When |
 |---|---|---|
-| MEMORY.md | ~150 | Every session (already exists) |
-| SessionStart inject | ~350 | Every session (learned memories) |
-| memcapture hook | 0 | Background, no LLM |
-| memdigest hook | ~2-5K input | Background, via claude --print |
-| memcompact hook | ~2-3K input | Background, via claude --print |
-| Snapshot inject | ~100-150 | Only post-compaction resumes |
-| `/memclean` skill | ~700 | Only when invoked |
-| `/reflect` skill | ~500 | Only when invoked |
-| memcompile concepts | ~300 | Only when run + 1 API call |
+| MEMORY.md | ~150 | Every session (native Claude Code memory) |
+| SessionStart inject | ~350 | Every session (durable + ephemeral + snapshot) |
+| `on-precompact` capture | 0 | Background, no LLM |
+| `on-precompact` digest | ~2-5K input | Background, detached Haiku 4.5 subprocess |
+| `on-precompact` snapshot | ~2-3K input | Background, detached Haiku 4.5 subprocess |
+| `on-precompact` patterns | 0 | Background, no LLM |
+| `/memclean` | ~700 | Only when invoked |
+| `/reflect`  | ~500 | Only when invoked |
+| `/patterns` | ~300 | Only when invoked |
 | **Ambient total** | **~350** | **Per session** |
 
-## Manual Install
+## Manual install
 
-If you prefer to do it yourself:
+If you skip `install.sh`:
 
 ```bash
-# Copy files
-cp tools/memcapture.py ~/.claude/tools/
-cp tools/memcompile.py ~/.claude/tools/
-cp hooks/memcapture-hook.sh ~/.claude/hooks/
-cp hooks/memcapture-inject.sh ~/.claude/hooks/
-cp -r skills/memclean ~/.claude/skills/
-cp -r skills/reflect ~/.claude/skills/
-chmod +x ~/.claude/hooks/memcapture-hook.sh ~/.claude/hooks/memcapture-inject.sh
+# Copy tools
+cp tools/engram.py        ~/.claude/tools/
+cp tools/memcapture.py    ~/.claude/tools/
+cp tools/memcompile.py    ~/.claude/tools/
+cp tools/mempatterns.py   ~/.claude/tools/
+cp tools/memdashboard.py  ~/.claude/tools/
+chmod +x ~/.claude/tools/engram.py
+
+# Copy skills
+cp -r skills/memclean  ~/.claude/skills/
+cp -r skills/reflect   ~/.claude/skills/
+cp -r skills/patterns  ~/.claude/skills/
 ```
 
-Then add these hooks to your `~/.claude/settings.json`:
+Then add these two hooks to `~/.claude/settings.json`:
 
 ```json
 {
   "hooks": {
     "PreCompact": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/hooks/memcapture-hook.sh"
-          }
-        ]
-      }
+      {"matcher": "", "hooks": [
+        {"type": "command", "command": "uv run $HOME/.claude/tools/engram.py on-precompact"}
+      ]}
     ],
     "SessionStart": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/hooks/memcapture-inject.sh"
-          }
-        ]
-      }
+      {"matcher": "", "hooks": [
+        {"type": "command", "command": "uv run $HOME/.claude/tools/engram.py on-session-start"}
+      ]}
     ]
   }
 }
 ```
 
-Run initial capture:
+Initial backfill of existing transcripts (optional):
 
 ```bash
-uv run ~/.claude/tools/memcapture.py --all
+uv run ~/.claude/tools/engram.py capture --all
 ```
 
-## Experimental: Semantic Fact Extraction
+## Environment variables
 
-Opt-in regex-based extraction of decisions and corrections from conversations. Disabled by default — the heuristics have a meaningful false positive rate (~30-50%).
-
-Enable with:
-```bash
-# Per invocation
-uv run ~/.claude/tools/memcapture.py --extract-facts
-
-# Always on (add to your shell profile)
-export MEMCAPTURE_EXTRACT_FACTS=1
-```
-
-When enabled, captures:
-
-| Type | How | Example |
+| Variable | Default | Effect |
 |---|---|---|
-| **Decisions** | Regex: "decided", "let's go with", "vamos con"... | "Decided async migration strategy: dual-engine" |
-| **Corrections** | Regex: "no,", "not that", "don't", "eso no"... | "no, me refiero que si total es 1k..." |
+| `ENGRAM_SHOW_BANNER` | `1` | Set to `0` to suppress the SessionStart banner (context still injects) |
+| `ENGRAM_SKIP_LLM` | unset | Set to `1` to skip all Haiku calls (useful for offline testing) |
+
+## Upgrading from v0.1
+
+v0.1 used 5 shell hooks (`memcapture-hook.sh`, `memcapture-inject.sh`, `memdigest-hook.sh`, `memcompact-hook.sh`, `mempatterns-hook.sh`). v1 consolidates them into two `engram.py` subcommands.
+
+Re-run `./install.sh`: it strips the legacy `.sh` entries from `settings.json` and writes the unified hook entries. `memory.db` and `~/.claude/patterns/` are preserved.
