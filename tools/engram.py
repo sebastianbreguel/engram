@@ -682,7 +682,10 @@ def _on_session_start(_args: argparse.Namespace) -> int:
         if executive:
             header = banner.split("\n", 1)[0] if banner else ""
             use_color = os.environ.get("NO_COLOR", "") == "" and os.environ.get("TERM", "") != "dumb"
-            exec_text = f"\033[97m{executive}\033[0m" if use_color else executive
+            if use_color:
+                exec_text = "\n".join(f"\033[97m{ln}\033[0m" for ln in executive.splitlines())
+            else:
+                exec_text = executive
             banner = f"{header}\n{exec_text}" if header else exec_text
 
     out: dict = {
