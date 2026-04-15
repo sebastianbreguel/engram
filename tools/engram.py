@@ -248,18 +248,25 @@ Rules:
 
 After the facts, add ONE blank line, then a single handoff paragraph addressed to the NEXT Claude session working in this project. Start with "HANDOFF: " and write 2-4 sentences in natural prose: what were we doing, where did we leave off, what should the next session pick up. Be concrete, not meta."""
 
-EXEC_PROMPT = """Mergeá recap + context en UNA línea accionable para abrir la próxima sesión.
+EXEC_PROMPT = """Mergeá recap + context en un punteo ejecutivo de 3 líneas para abrir la próxima sesión.
 
 RECAP: {recap}
 CONTEXT: {context}
 
-Formato: una sola línea, ≤120 chars, empieza con "next:" seguido de la acción más crítica.
-Si hay múltiples pasos secuenciales, uní con " → " (máx 3).
-Sin bullets, sin paths absolutos, sin "Prioridad", sin comillas de code, sin preámbulo ni cierre.
+Formato EXACTO (3 bullets, en este orden, cada uno ≤90 chars):
+- status: <proyecto + estado actual>
+- last change: <lo último que se hizo o decidió>
+- next: <próxima acción; uní pasos secuenciales con " → ", máx 3>
 
-Ejemplo: next: dispatcher DISPATCH dict → integrar latest_recap() → docs
+Sin paths absolutos, sin "Prioridad", sin comillas de code, sin preámbulo ni cierre.
+Si falta info para un campo, escribí "- <key>: —".
 
-Devolvé SOLO esa línea.
+Ejemplo:
+- status: claude-engram post-refactor, 46/46 tests
+- last change: fix argparse --flag=value en fire-and-forget
+- next: dispatcher DISPATCH dict → integrar latest_recap() → docs
+
+Devolvé SOLO las 3 líneas.
 """
 
 
