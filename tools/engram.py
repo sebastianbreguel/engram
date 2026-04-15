@@ -661,25 +661,29 @@ def _on_session_start(_args: argparse.Namespace) -> int:
 
     if executive:
         context = executive
-        banner = executive if os.environ.get("ENGRAM_SHOW_BANNER", "1") == "1" else ""
     else:
         buf = io.StringIO()
         memcapture.run(_memcap_ns(inject=True, inject_project=project_key or None), out=buf)
         context = buf.getvalue()
 
-        banner = ""
-        if os.environ.get("ENGRAM_SHOW_BANNER", "1") == "1":
-            buf2 = io.StringIO()
-            display_name = Path(cwd).name if cwd else ""
-            memcapture.run(
-                _memcap_ns(
-                    banner=True,
-                    banner_project=project_key or None,
-                    banner_name=display_name or None,
-                ),
-                out=buf2,
-            )
-            banner = buf2.getvalue().strip()
+    banner = ""
+    if os.environ.get("ENGRAM_SHOW_BANNER", "1") == "1":
+        buf2 = io.StringIO()
+        display_name = Path(cwd).name if cwd else ""
+        memcapture.run(
+            _memcap_ns(
+                banner=True,
+                banner_project=project_key or None,
+                banner_name=display_name or None,
+            ),
+            out=buf2,
+        )
+        banner = buf2.getvalue().strip()
+        if executive:
+            header = banner.split("\n", 1)[0] if banner else ""
+            use_color = os.environ.get("NO_COLOR", "") == "" and os.environ.get("TERM", "") != "dumb"
+            exec_text = f"\033[97m{executive}\033[0m" if use_color else executive
+            banner = f"{header}\n{exec_text}" if header else exec_text
 
     out: dict = {
         "continue": True,
