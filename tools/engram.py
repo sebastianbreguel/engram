@@ -28,6 +28,7 @@ TOOLS_DIR = Path(__file__).parent
 sys.path.insert(0, str(TOOLS_DIR))
 
 import memcapture  # noqa: E402
+import memdoctor  # noqa: E402
 import mempatterns  # noqa: E402
 
 
@@ -740,6 +741,11 @@ def build_parser() -> argparse.ArgumentParser:
     fg = sub.add_parser("forget", help="delete a memory by topic")
     fg.add_argument("topic")
     fg.set_defaults(func=lambda a: memcapture.run(_memcap_ns(forget=a.topic)))
+
+    dr = sub.add_parser("doctor", help="detect friction signals across sessions")
+    dr.add_argument("--project", type=str, default=None, help="filter by project path substring")
+    dr.add_argument("--rules", action="store_true", help="print CLAUDE.md rule suggestions")
+    dr.set_defaults(func=lambda a: memdoctor.run(argparse.Namespace(project=a.project, rules=a.rules)))
 
     op = sub.add_parser("on-precompact", help="hook: orchestrate PreCompact work")
     op.set_defaults(func=_on_precompact)
