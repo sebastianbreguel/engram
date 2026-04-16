@@ -6,7 +6,6 @@ import sqlite3
 from datetime import date, timedelta
 
 import pytest
-
 from mempatterns import PatternDetector, PatternsOrchestrator, WikiWriter, _slugify
 
 

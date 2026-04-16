@@ -31,6 +31,7 @@ import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TextIO
 
 DB_PATH = Path.home() / ".claude" / "memory.db"
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
@@ -523,7 +524,7 @@ class MemoryDB:
             return ""
         entries.sort(key=lambda x: -x[0])
         lines = [e[1] for e in entries[:max_patterns]]
-        return "<patterns>\n" + "\n".join(f"- {l}" for l in lines) + "\n</patterns>"
+        return "<patterns>\n" + "\n".join(f"- {line}" for line in lines) + "\n</patterns>"
 
     def _format_snapshot(self, snapshot_json: str, max_chars: int = 600) -> str:
         """Format a compaction snapshot as an injection block (capped to ~150 tokens)."""
@@ -1011,7 +1012,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run(args: argparse.Namespace, out: "TextIO | None" = None, input_text: str | None = None) -> int:
+def run(args: argparse.Namespace, out: TextIO | None = None, input_text: str | None = None) -> int:
     import contextlib
 
     db = MemoryDB()
