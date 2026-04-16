@@ -745,6 +745,83 @@ def _preview(args: argparse.Namespace) -> int:
     return 0
 
 
+def _forget(args: argparse.Namespace) -> int:
+    """Delete memories by topic, by project scope, or by expiry.
+
+    Exactly one of {topic, --expired, --project} must be specified. --dry-run
+    turns every mode into a preview — prints what would be deleted without
+    touching the DB. Useful for housekeeping before committing to a purge.
+    """
+    modes = sum(1 for x in (args.topic, args.expired, args.project) if x)
+    if modes != 1:
+        sys.stderr.write("error: specify exactly one of: <topic>, --expired, --project KEY\n")
+        return 2
+
+    if args.topic:
+        # Single-topic delete keeps its original dispatch path; dry-run lists,
+        # real delete goes through memcapture.
+        if args.dry_run:
+            db = memcapture.MemoryDB()
+            rows = db.list_memories(args.topic)
+            if not rows:
+                print(f"(dry-run) no memory with topic: {args.topic}")
+                return 0
+            for r in rows:
+                print(f"(dry-run) would forget: [{r['durability']}] {r['topic']}")
+            return 0
+        return memcapture.run(_memcap_ns(forget=args.topic)) or 0
+
+    db = memcapture.MemoryDB()
+    if args.expired:
+        rows = db.conn.execute(
+            "SELECT topic, created_at FROM memories "
+            "WHERE durability = 'ephemeral' AND created_at < datetime('now', '-7 days') "
+            "ORDER BY created_at"
+        ).fetchall()
+        if args.dry_run:
+            if not rows:
+                print("(dry-run) no expired ephemeral memories")
+                return 0
+            for r in rows:
+                print(f"(dry-run) would forget: {r['topic']} (created {r['created_at']})")
+            print(f"(dry-run) total: {len(rows)} memories")
+            return 0
+        count = db.cleanup_ephemeral()
+        print(f"Deleted {count} expired ephemeral memories")
+        return 0
+
+    # --project KEY: delete ephemerals whose source session's project matches
+    key = args.project
+    like = f"%{key}%"
+    rows = db.conn.execute(
+        """
+        SELECT m.topic
+        FROM memories m
+        JOIN sessions s ON m.source_session = s.session_id
+        WHERE m.durability = 'ephemeral' AND s.project LIKE ?
+        ORDER BY m.topic
+        """,
+        (like,),
+    ).fetchall()
+    if args.dry_run:
+        if not rows:
+            print(f"(dry-run) no ephemeral memories for project matching {key!r}")
+            return 0
+        for r in rows:
+            print(f"(dry-run) would forget: {r['topic']}")
+        print(f"(dry-run) total: {len(rows)} memories")
+        return 0
+    topics = [r["topic"] for r in rows]
+    if not topics:
+        print(f"No ephemeral memories for project matching {key!r}")
+        return 0
+    placeholders = ",".join("?" * len(topics))
+    db.conn.execute(f"DELETE FROM memories WHERE topic IN ({placeholders})", topics)
+    db.conn.commit()
+    print(f"Deleted {len(topics)} ephemeral memories for project matching {key!r}")
+    return 0
+
+
 def _verify_install(_args: argparse.Namespace) -> int:
     """Compare SHA256 of repo tools/*.py with installed ~/.claude/tools/*.py.
 
@@ -903,9 +980,14 @@ def build_parser() -> argparse.ArgumentParser:
     mm = sub.add_parser("memories", help="list learned memories")
     mm.set_defaults(func=lambda _a: memcapture.run(_memcap_ns(memories="*")))
 
-    fg = sub.add_parser("forget", help="delete a memory by topic")
-    fg.add_argument("topic")
-    fg.set_defaults(func=lambda a: memcapture.run(_memcap_ns(forget=a.topic)))
+    fg = sub.add_parser("forget", help="delete memory by topic, by project scope, or by expiry")
+    fg.add_argument("topic", nargs="?", default=None, help="topic to forget (omit when using --expired or --project)")
+    fg.add_argument("--expired", action="store_true", help="delete ephemeral memories older than 7 days")
+    fg.add_argument(
+        "--project", metavar="KEY", default=None, help="delete ephemeral memories for sessions whose project matches KEY (substring)"
+    )
+    fg.add_argument("--dry-run", dest="dry_run", action="store_true", help="print what would be deleted, don't delete")
+    fg.set_defaults(func=_forget)
 
     sr = sub.add_parser("search", help="FTS5 search over captured facts")
     sr.add_argument("query", help="search term (FTS5 syntax supported)")

@@ -436,6 +436,259 @@ def test_session_start_banner_omits_friction_when_none(tmp_path, monkeypatch):
     assert "friction:" not in out.get("systemMessage", "")
 
 
+def _seed_memories(db_path: Path, rows: list[dict]) -> None:
+    """Insert memories + their source sessions directly. Each row needs
+    topic, content, durability, created_at, session_id, project."""
+    import importlib.util
+    import sqlite3
+
+    # Trigger schema creation via MemoryDB ctor (idempotent).
+    spec = importlib.util.spec_from_file_location("memcap_mod", REPO / "tools" / "memcapture.py")
+    mc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mc)
+    mc.MemoryDB(db_path).conn.close()
+
+    conn = sqlite3.connect(str(db_path))
+    insert_mem = (
+        "INSERT OR REPLACE INTO memories "
+        "(topic, content, durability, created_at, last_accessed, source_session) "
+        "VALUES (?, ?, ?, ?, datetime('now'), ?)"
+    )
+    for r in rows:
+        conn.execute(
+            "INSERT OR REPLACE INTO sessions (session_id, project, captured_at) VALUES (?, ?, datetime('now'))",
+            (r["session_id"], r["project"]),
+        )
+        conn.execute(
+            insert_mem,
+            (r["topic"], r["content"], r["durability"], r["created_at"], r["session_id"]),
+        )
+    conn.commit()
+    conn.close()
+
+
+def test_forget_requires_exactly_one_mode(tmp_path, monkeypatch):
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    # Zero modes → error
+    result = _run(["forget"])
+    assert result.returncode == 2
+    assert "exactly one" in result.stderr
+
+    # Two modes → error
+    result = _run(["forget", "--expired", "--project", "foo"])
+    assert result.returncode == 2
+    assert "exactly one" in result.stderr
+
+
+def test_forget_expired_dry_run_lists_but_does_not_delete(tmp_path, monkeypatch):
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    db_path = fake_home / ".claude" / "memory.db"
+    _seed_memories(
+        db_path,
+        [
+            {
+                "topic": "old_e",
+                "content": "x",
+                "durability": "ephemeral",
+                "created_at": "2020-01-01 00:00:00",
+                "session_id": "s1",
+                "project": "/p/one",
+            },
+            {
+                "topic": "new_e",
+                "content": "x",
+                "durability": "ephemeral",
+                "created_at": "2099-01-01 00:00:00",
+                "session_id": "s2",
+                "project": "/p/one",
+            },
+            {
+                "topic": "old_d",
+                "content": "x",
+                "durability": "durable",
+                "created_at": "2020-01-01 00:00:00",
+                "session_id": "s3",
+                "project": "/p/one",
+            },
+        ],
+    )
+
+    result = _run(["forget", "--expired", "--dry-run"])
+    assert result.returncode == 0
+    assert "would forget: old_e" in result.stdout
+    assert "new_e" not in result.stdout  # not expired
+    assert "old_d" not in result.stdout  # durable, never expires
+
+    # DB unchanged
+    import sqlite3
+
+    conn = sqlite3.connect(str(db_path))
+    topics = {r[0] for r in conn.execute("SELECT topic FROM memories").fetchall()}
+    assert topics == {"old_e", "new_e", "old_d"}
+
+
+def test_forget_expired_deletes_old_ephemerals_only(tmp_path, monkeypatch):
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    db_path = fake_home / ".claude" / "memory.db"
+    _seed_memories(
+        db_path,
+        [
+            {
+                "topic": "old_e",
+                "content": "x",
+                "durability": "ephemeral",
+                "created_at": "2020-01-01 00:00:00",
+                "session_id": "s1",
+                "project": "/p",
+            },
+            {
+                "topic": "new_e",
+                "content": "x",
+                "durability": "ephemeral",
+                "created_at": "2099-01-01 00:00:00",
+                "session_id": "s2",
+                "project": "/p",
+            },
+            {
+                "topic": "old_d",
+                "content": "x",
+                "durability": "durable",
+                "created_at": "2020-01-01 00:00:00",
+                "session_id": "s3",
+                "project": "/p",
+            },
+        ],
+    )
+
+    result = _run(["forget", "--expired"])
+    assert result.returncode == 0
+    assert "Deleted 1" in result.stdout
+
+    import sqlite3
+
+    conn = sqlite3.connect(str(db_path))
+    topics = {r[0] for r in conn.execute("SELECT topic FROM memories").fetchall()}
+    assert topics == {"new_e", "old_d"}, "only the old ephemeral should be gone"
+
+
+def test_forget_project_scoped_deletes_matching_ephemerals(tmp_path, monkeypatch):
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    db_path = fake_home / ".claude" / "memory.db"
+    _seed_memories(
+        db_path,
+        [
+            {
+                "topic": "eng_e",
+                "content": "x",
+                "durability": "ephemeral",
+                "created_at": "2099-01-01",
+                "session_id": "s1",
+                "project": "-Users-me-claude-engram",
+            },
+            {
+                "topic": "vambe_e",
+                "content": "x",
+                "durability": "ephemeral",
+                "created_at": "2099-01-01",
+                "session_id": "s2",
+                "project": "-Users-me-vambe",
+            },
+            {
+                "topic": "eng_d",
+                "content": "x",
+                "durability": "durable",
+                "created_at": "2099-01-01",
+                "session_id": "s3",
+                "project": "-Users-me-claude-engram",
+            },
+        ],
+    )
+
+    result = _run(["forget", "--project", "claude-engram"])
+    assert result.returncode == 0
+    assert "Deleted 1" in result.stdout
+
+    import sqlite3
+
+    conn = sqlite3.connect(str(db_path))
+    topics = {r[0] for r in conn.execute("SELECT topic FROM memories").fetchall()}
+    # durable memory for claude-engram stays (--project only targets ephemerals)
+    assert topics == {"vambe_e", "eng_d"}
+
+
+def test_forget_project_dry_run_previews(tmp_path, monkeypatch):
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    db_path = fake_home / ".claude" / "memory.db"
+    _seed_memories(
+        db_path,
+        [
+            {
+                "topic": "eng_e",
+                "content": "x",
+                "durability": "ephemeral",
+                "created_at": "2099-01-01",
+                "session_id": "s1",
+                "project": "-Users-me-claude-engram",
+            },
+        ],
+    )
+    result = _run(["forget", "--project", "claude-engram", "--dry-run"])
+    assert result.returncode == 0
+    assert "would forget: eng_e" in result.stdout
+
+    import sqlite3
+
+    conn = sqlite3.connect(str(db_path))
+    topics = {r[0] for r in conn.execute("SELECT topic FROM memories").fetchall()}
+    assert topics == {"eng_e"}  # untouched
+
+
+def test_forget_project_no_match_reports_cleanly(tmp_path, monkeypatch):
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    _seed_memories(fake_home / ".claude" / "memory.db", [])
+
+    result = _run(["forget", "--project", "nonexistent"])
+    assert result.returncode == 0
+    assert "No ephemeral memories" in result.stdout
+
+
+def test_forget_single_topic_still_works(tmp_path, monkeypatch):
+    """The original `forget <topic>` path must keep working."""
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    db_path = fake_home / ".claude" / "memory.db"
+    _seed_memories(
+        db_path,
+        [
+            {"topic": "my_topic", "content": "x", "durability": "durable", "created_at": "2099-01-01", "session_id": "s1", "project": "/p"},
+        ],
+    )
+
+    result = _run(["forget", "my_topic"])
+    assert result.returncode == 0
+    assert "Forgot: my_topic" in result.stdout
+
+
 def test_hooks_json_uses_engram_inline():
     """After Task 8, hooks.json references engram.py, not .sh."""
     config = _json.loads((REPO / "hooks" / "hooks.json").read_text())
