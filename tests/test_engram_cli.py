@@ -35,11 +35,91 @@ def test_help_lists_all_subcommands():
         "forget",
         "search",
         "log",
+        "verify-install",
         "on-precompact",
         "on-session-start",
         "on-user-prompt",
     ]:
         assert cmd in result.stdout, f"missing subcommand in help: {cmd}"
+
+
+def test_version_flag_prints_version():
+    result = _run(["--version"])
+    assert result.returncode == 0
+    assert "engram" in result.stdout
+    import re
+
+    assert re.search(r"\d+\.\d+\.\d+", result.stdout), f"no semver in output: {result.stdout!r}"
+
+
+def test_version_matches_plugin_manifest():
+    """Guard against drift between __version__ in engram.py and plugin.json."""
+    import re
+
+    engram_src = (REPO / "tools" / "engram.py").read_text(encoding="utf-8")
+    m = re.search(r'__version__\s*=\s*"([^"]+)"', engram_src)
+    assert m, "could not find __version__ in engram.py"
+    engram_version = m.group(1)
+
+    manifest = _json.loads((REPO / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    assert manifest["version"] == engram_version, f"version drift: plugin.json={manifest['version']!r} engram.py={engram_version!r}"
+
+
+def test_verify_install_detects_drift(tmp_path, monkeypatch):
+    """Drift case: one installed tool file has different bytes than repo."""
+    fake_home = tmp_path / "home"
+    installed = fake_home / ".claude" / "tools"
+    installed.mkdir(parents=True)
+
+    # Mirror every tool file, but corrupt one so SHA drifts.
+    for p in (REPO / "tools").glob("*.py"):
+        (installed / p.name).write_bytes(p.read_bytes())
+    (installed / "memcapture.py").write_bytes(b"# drifted content\n")
+
+    monkeypatch.setenv("HOME", str(fake_home))
+    result = _run(["verify-install"])
+    assert result.returncode == 1, f"expected drift exit=1, got {result.returncode}\n{result.stdout}\n{result.stderr}"
+    assert "DRIFT" in result.stdout
+    assert "memcapture.py" in result.stdout
+
+
+def test_verify_install_reports_sync(tmp_path, monkeypatch):
+    """No drift: every installed tool matches repo byte-for-byte."""
+    fake_home = tmp_path / "home"
+    installed = fake_home / ".claude" / "tools"
+    installed.mkdir(parents=True)
+    for p in (REPO / "tools").glob("*.py"):
+        (installed / p.name).write_bytes(p.read_bytes())
+
+    monkeypatch.setenv("HOME", str(fake_home))
+    result = _run(["verify-install"])
+    assert result.returncode == 0, f"expected sync exit=0, got {result.returncode}\n{result.stdout}\n{result.stderr}"
+    assert "OK" in result.stdout
+    assert "in sync" in result.stdout
+
+
+def test_verify_install_flags_missing_file(tmp_path, monkeypatch):
+    """Missing installed file counts as drift."""
+    fake_home = tmp_path / "home"
+    installed = fake_home / ".claude" / "tools"
+    installed.mkdir(parents=True)
+    # Install only engram.py; memcapture/mempatterns/memdoctor missing
+    (installed / "engram.py").write_bytes((REPO / "tools" / "engram.py").read_bytes())
+
+    monkeypatch.setenv("HOME", str(fake_home))
+    result = _run(["verify-install"])
+    assert result.returncode == 1
+    assert "missing" in result.stdout
+
+
+def test_verify_install_errors_when_no_install(tmp_path, monkeypatch):
+    """No ~/.claude/tools/ at all → exit 1 with actionable message."""
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+    result = _run(["verify-install"])
+    assert result.returncode == 1
+    assert "install.sh" in result.stderr
 
 
 def test_stats_runs(tmp_path, monkeypatch):

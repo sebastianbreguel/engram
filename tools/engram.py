@@ -16,6 +16,7 @@ that never block the caller.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json as _json
 import os
@@ -23,6 +24,8 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+__version__ = "0.1.0"
 
 TOOLS_DIR = Path(__file__).parent
 sys.path.insert(0, str(TOOLS_DIR))
@@ -742,6 +745,56 @@ def _preview(args: argparse.Namespace) -> int:
     return 0
 
 
+def _verify_install(_args: argparse.Namespace) -> int:
+    """Compare SHA256 of repo tools/*.py with installed ~/.claude/tools/*.py.
+
+    Run from the repo checkout. Detects drift when tools/ was edited but
+    ./install.sh was not re-run — the bug mode that let a broken build live
+    silently in production. Exit 0 if in sync, 1 if drift, 2 if misused.
+    """
+    repo_tools = Path(__file__).parent.resolve()
+    installed = (Path.home() / ".claude" / "tools").resolve()
+
+    if repo_tools == installed:
+        sys.stderr.write(
+            "verify-install must be run from the repo, not from ~/.claude/tools/.\n"
+            "Usage: uv run /path/to/claude-engram/tools/engram.py verify-install\n"
+        )
+        return 2
+
+    if not installed.exists():
+        sys.stderr.write(f"No installed tools at {installed}. Run ./install.sh.\n")
+        return 1
+
+    tool_files = sorted(p for p in repo_tools.glob("*.py") if not p.name.startswith("_"))
+    if not tool_files:
+        sys.stderr.write(f"No tool files in {repo_tools}.\n")
+        return 1
+
+    def _sha(p: Path) -> str:
+        return hashlib.sha256(p.read_bytes()).hexdigest()[:12]
+
+    drift = []
+    for repo_file in tool_files:
+        inst_file = installed / repo_file.name
+        if not inst_file.exists():
+            drift.append((repo_file.name, _sha(repo_file), "missing"))
+            continue
+        if _sha(repo_file) != _sha(inst_file):
+            drift.append((repo_file.name, _sha(repo_file), _sha(inst_file)))
+
+    if not drift:
+        print(f"OK: all {len(tool_files)} tool(s) in sync (sha256 match).")
+        return 0
+
+    print(f"DRIFT: {len(drift)} of {len(tool_files)} file(s) out of sync")
+    print(f"  {'file':<18} {'repo':<14} {'installed':<14}")
+    for name, repo_hash, inst_hash in drift:
+        print(f"  {name:<18} {repo_hash:<14} {inst_hash:<14}")
+    print("\nRun ./install.sh to sync.")
+    return 1
+
+
 def _on_session_start(_args: argparse.Namespace) -> int:
     raw = sys.stdin.read() if not sys.stdin.isatty() else ""
     try:
@@ -807,6 +860,7 @@ def _on_session_start(_args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="engram", description="claude-engram unified CLI")
+    p.add_argument("--version", action="version", version=f"engram {__version__}")
     sub = p.add_subparsers(dest="cmd", required=False)
 
     c = sub.add_parser("capture", help="capture a session")
@@ -883,6 +937,9 @@ def build_parser() -> argparse.ArgumentParser:
     pv.add_argument("--cwd", default=None)
     pv.add_argument("--prev", action="store_true", help="print the rotated previous cache (never rebuilds)")
     pv.set_defaults(func=_preview)
+
+    vi = sub.add_parser("verify-install", help="compare repo tools/*.py SHA with ~/.claude/tools/ (detect install drift)")
+    vi.set_defaults(func=_verify_install)
 
     return p
 
