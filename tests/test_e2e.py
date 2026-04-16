@@ -43,6 +43,25 @@ def test_capture_transcript_exits_zero(tmp_home):
     assert result.returncode == 0, f"capture failed: {result.stderr}"
 
 
+def test_schema_user_version_is_1(tmp_home):
+    """PRAGMA user_version is stamped to 1 after any capture (v1 baseline).
+
+    Future schema changes must bump this in `_migrate` and gate their ALTERs
+    behind `if version < N:` blocks. This test locks the baseline.
+    """
+    import sqlite3
+
+    _memcap(["--transcript", str(FIXTURE)])
+    db_path = tmp_home / ".claude" / "memory.db"
+    assert db_path.exists(), "memory.db should exist after capture"
+    conn = sqlite3.connect(str(db_path))
+    try:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+    finally:
+        conn.close()
+    assert version == 1, f"expected user_version=1, got {version}"
+
+
 def test_capture_then_stats_reports_activity(tmp_home):
     """After capture, --stats reports non-zero sessions. Contract: the user sees a summary."""
     _memcap(["--transcript", str(FIXTURE)])

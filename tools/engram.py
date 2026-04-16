@@ -623,6 +623,23 @@ def _on_executive(args: argparse.Namespace) -> int:
     return 0
 
 
+def _log_tail(args: argparse.Namespace) -> int:
+    """Print the last N lines of ~/.claude/engram.log (background LLM failures, timeouts)."""
+    log = Path.home() / ".claude" / "engram.log"
+    if not log.exists():
+        sys.stdout.write(f"(no log yet at {log})\n")
+        return 0
+    from collections import deque
+
+    n = max(1, args.tail)
+    with log.open("r", encoding="utf-8", errors="replace") as f:
+        lines = deque(f, maxlen=n)
+    sys.stdout.writelines(lines)
+    if not lines:
+        sys.stdout.write("(log is empty)\n")
+    return 0
+
+
 def _preview(args: argparse.Namespace) -> int:
     """Print the cached executive summary for a cwd. Builds it synchronously
     if no cache exists yet. Useful for debugging and demoing without opening
@@ -741,6 +758,14 @@ def build_parser() -> argparse.ArgumentParser:
     fg = sub.add_parser("forget", help="delete a memory by topic")
     fg.add_argument("topic")
     fg.set_defaults(func=lambda a: memcapture.run(_memcap_ns(forget=a.topic)))
+
+    sr = sub.add_parser("search", help="FTS5 search over captured facts")
+    sr.add_argument("query", help="search term (FTS5 syntax supported)")
+    sr.set_defaults(func=lambda a: memcapture.run(_memcap_ns(query=a.query)))
+
+    lg = sub.add_parser("log", help="tail engram.log (background LLM failures, timestamps)")
+    lg.add_argument("--tail", type=int, default=20, metavar="N", help="last N lines (default: 20)")
+    lg.set_defaults(func=_log_tail)
 
     dr = sub.add_parser("doctor", help="detect friction signals across sessions")
     dr.add_argument("--project", type=str, default=None, help="filter by project path substring")

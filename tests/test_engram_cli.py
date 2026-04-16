@@ -33,6 +33,8 @@ def test_help_lists_all_subcommands():
         "stats",
         "memories",
         "forget",
+        "search",
+        "log",
         "on-precompact",
         "on-session-start",
         "on-user-prompt",
@@ -135,6 +137,40 @@ def test_extract_chunk_keeps_recency_and_salience(tmp_path):
     assert "RECENT_ASSISTANT_9" in out, "last turns must survive compression"
     assert "nunca mockees la DB" in out, "early high-salience correction must survive"
     assert "..." in out, "compressed output should contain gap marker"
+
+
+def test_search_runs_without_crash(tmp_path, monkeypatch):
+    """`engram search <query>` exits 0 even against an empty DB."""
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+    result = _run(["search", "anything"])
+    assert result.returncode == 0, f"search failed: {result.stderr}"
+
+
+def test_log_tail_reports_missing_log(tmp_path, monkeypatch):
+    """`engram log` reports a clean message when the log file doesn't exist."""
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+    result = _run(["log", "--tail", "5"])
+    assert result.returncode == 0
+    assert "no log yet" in result.stdout
+
+
+def test_log_tail_reads_last_n_lines(tmp_path, monkeypatch):
+    """`engram log --tail N` returns the last N lines of ~/.claude/engram.log."""
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)
+    log = fake_home / ".claude" / "engram.log"
+    log.write_text("\n".join(f"line-{i}" for i in range(20)) + "\n")
+    monkeypatch.setenv("HOME", str(fake_home))
+    result = _run(["log", "--tail", "3"])
+    assert result.returncode == 0
+    # Last 3 lines: line-17, line-18, line-19
+    assert "line-19" in result.stdout
+    assert "line-17" in result.stdout
+    assert "line-10" not in result.stdout
 
 
 def test_hooks_json_uses_engram_inline():

@@ -162,16 +162,18 @@ class MemoryDB:
         self.conn.commit()
 
     def _migrate(self) -> None:
-        """Run incremental schema migrations gated by PRAGMA user_version."""
+        """Run incremental schema migrations gated by PRAGMA user_version.
+
+        Current schema version: 1 (stamp only; all v1 columns are declared in
+        CREATE TABLE statements above). Future ALTERs go inside `if version < N:`
+        blocks, each ending with `PRAGMA user_version = N` and a commit.
+        """
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
 
-        # -- migration 1: (reserved for future column additions)
-        # if version < 1:
-        #     self.conn.execute("ALTER TABLE sessions ADD COLUMN new_col TEXT")
-        #     self.conn.execute("PRAGMA user_version = 1")
-        #     self.conn.commit()
-
-        _ = version  # current schema is version 0
+        if version < 1:
+            # v1 sentinel: current schema is the baseline. No data changes.
+            self.conn.execute("PRAGMA user_version = 1")
+            self.conn.commit()
 
     def _content_hash(self, content: str) -> str:
         return hashlib.md5(content.encode()).hexdigest()[:12]

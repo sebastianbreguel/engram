@@ -11,6 +11,8 @@ All invocations use `uv run` — the script declares its dependencies inline (`#
 uv run ~/.claude/tools/engram.py stats              # counts, durability split, projects
 uv run ~/.claude/tools/engram.py memories           # list all learned memories
 uv run ~/.claude/tools/engram.py forget <topic>     # delete a memory by topic
+uv run ~/.claude/tools/engram.py search <query>     # FTS5 search over captured facts
+uv run ~/.claude/tools/engram.py log --tail 20      # tail ~/.claude/engram.log (background LLM failures)
 
 # Pattern wiki (emergent, opt-in exploration)
 uv run ~/.claude/tools/engram.py patterns --report   # detected file co-edits, tool bias, recurring errors
