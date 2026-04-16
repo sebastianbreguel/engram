@@ -23,6 +23,7 @@ from memdoctor import (
     format_rules,
     normalize_error,
     parse_jsonl,
+    signals_banner_line,
     signals_for_executive,
 )
 
@@ -366,6 +367,72 @@ class TestSignalsForExecutive:
         monkeypatch.setattr(memdoctor, "_analyze", fake_analyze)
         monkeypatch.setattr(memdoctor, "MIN_CORRECTIONS_TO_FLAG", 2)
         assert signals_for_executive("/my/project") == ""
+
+
+class TestSignalsBannerLine:
+    def test_empty_filter_returns_empty(self):
+        assert signals_banner_line("") == ""
+
+    def test_nonmatching_project_returns_empty(self):
+        assert signals_banner_line("/nonexistent/path/xyz") == ""
+
+    def test_formats_single_line_with_top_signals(self, monkeypatch):
+        """Active signals ≥ threshold collapse into one banner line."""
+        import memdoctor
+
+        def fake_analyze(project_filter=None):
+            return {
+                "sessions": 5,
+                "projects": {project_filter: {"error-loop": 3, "correction-heavy": 5}},
+                "totals": {"error-loop": 3, "correction-heavy": 5},
+                "error_samples": [],
+            }
+
+        monkeypatch.setattr(memdoctor, "_analyze", fake_analyze)
+        monkeypatch.setattr(memdoctor, "MIN_CORRECTIONS_TO_FLAG", 2)
+        out = signals_banner_line("/my/project")
+        assert out.startswith("friction: ")
+        assert "error-loop(3x)" in out
+        assert "correction-heavy(5x)" in out
+        # Higher count ranks first
+        assert out.index("correction-heavy") < out.index("error-loop")
+        assert "engram doctor" in out
+        assert "\n" not in out, f"banner line must be single-line: {out!r}"
+
+    def test_top_n_caps_output(self, monkeypatch):
+        """top_n limits how many signals appear in the banner."""
+        import memdoctor
+
+        def fake_analyze(project_filter=None):
+            return {
+                "sessions": 5,
+                "projects": {project_filter: {}},
+                "totals": {"a": 10, "b": 9, "c": 8, "d": 7},
+                "error_samples": [],
+            }
+
+        monkeypatch.setattr(memdoctor, "_analyze", fake_analyze)
+        monkeypatch.setattr(memdoctor, "MIN_CORRECTIONS_TO_FLAG", 2)
+        out = signals_banner_line("/my/project", top_n=2)
+        assert "a(10x)" in out
+        assert "b(9x)" in out
+        assert "c(" not in out
+        assert "d(" not in out
+
+    def test_below_threshold_returns_empty(self, monkeypatch):
+        import memdoctor
+
+        def fake_analyze(project_filter=None):
+            return {
+                "sessions": 1,
+                "projects": {project_filter: {"error-loop": 1}},
+                "totals": {"error-loop": 1},
+                "error_samples": [],
+            }
+
+        monkeypatch.setattr(memdoctor, "_analyze", fake_analyze)
+        monkeypatch.setattr(memdoctor, "MIN_CORRECTIONS_TO_FLAG", 2)
+        assert signals_banner_line("/my/project") == ""
 
 
 class TestMetaFiltering:

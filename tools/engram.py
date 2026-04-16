@@ -844,6 +844,15 @@ def _on_session_start(_args: argparse.Namespace) -> int:
                 exec_text = executive
             banner = f"{header}\n{exec_text}" if header else exec_text
 
+        # Friction alert: surface memdoctor signals that would otherwise stay
+        # buried until the user runs `engram doctor` manually.
+        try:
+            friction = memdoctor.signals_banner_line(cwd) if cwd else ""
+        except Exception:
+            friction = ""
+        if friction:
+            banner = f"{banner}\n{friction}" if banner else friction
+
     out: dict = {
         "continue": True,
         "suppressOutput": True,

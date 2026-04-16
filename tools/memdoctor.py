@@ -483,30 +483,43 @@ def _print_rules_per_project(report: dict) -> None:
         print("No per-project rules to suggest.")
 
 
-def signals_for_executive(project_filter: str, top_n: int = 3) -> str:
-    """Return a short text block of top friction signals for a project.
+def _ranked_signals(project_filter: str) -> list[tuple[str, int]]:
+    """Top signals (name, count) for a project, filtered above flag threshold."""
+    if not project_filter:
+        return []
+    try:
+        report = _analyze(project_filter=project_filter)
+    except Exception:
+        return []
+    totals = report.get("totals", {})
+    ranked = [(s, c) for s, c in totals.items() if c >= MIN_CORRECTIONS_TO_FLAG]
+    ranked.sort(key=lambda x: -x[1])
+    return ranked
 
-    Used by engram.py `_on_executive` to inject friction context into the
-    executive summary prompt. Empty string if nothing significant fires.
+
+def signals_for_executive(project_filter: str, top_n: int = 3) -> str:
+    """Bullet-formatted top signals for the executive LLM prompt. Empty if none.
 
     Only surfaces signals whose count >= MIN_CORRECTIONS_TO_FLAG so noise
     from single-session blips doesn't bleed into `next:` lines.
     """
-    if not project_filter:
-        return ""
-    try:
-        report = _analyze(project_filter=project_filter)
-    except Exception:
-        return ""
-    totals = report.get("totals", {})
-    if not totals:
-        return ""
-    ranked = [(s, c) for s, c in totals.items() if c >= MIN_CORRECTIONS_TO_FLAG]
+    ranked = _ranked_signals(project_filter)[:top_n]
     if not ranked:
         return ""
-    ranked.sort(key=lambda x: -x[1])
-    lines = [f"- {s} ({c}x)" for s, c in ranked[:top_n]]
-    return "\n".join(lines)
+    return "\n".join(f"- {s} ({c}x)" for s, c in ranked)
+
+
+def signals_banner_line(project_filter: str, top_n: int = 2) -> str:
+    """One-liner for the SessionStart banner. Empty if nothing fires.
+
+    Format: `friction: error-loop(3x), correction-heavy(5x) (run: engram doctor)`
+    Kept short so it fits beside the stats line without wrapping.
+    """
+    ranked = _ranked_signals(project_filter)[:top_n]
+    if not ranked:
+        return ""
+    parts = ", ".join(f"{s}({c}x)" for s, c in ranked)
+    return f"friction: {parts} (run: engram doctor)"
 
 
 def build_parser() -> argparse.ArgumentParser:
