@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- `engram --version` top-level flag and `engram verify-install` subcommand: SHA256-compares `tools/*.py` in the repo against `~/.claude/tools/` and flags drift, missing files, or sync. Catches "forgot to re-run install.sh" silently breaking behavior.
+- **SessionStart banner surfaces friction**: when memdoctor detects active signals (correction-heavy, error-loop, etc.) for the current project, banner appends `friction: <signal>(Nx), ... (run: engram doctor)`. Top 2 signals, ranked by count.
+- `engram forget --expired`: delete ephemeral memories older than 7 days.
+- `engram forget --project KEY`: delete ephemerals whose session project LIKE `%KEY%`.
+- `engram forget --dry-run`: preview either bulk mode without deleting. Mode validation enforces exactly one of `{topic, --expired, --project}`.
 - **Executive summary** at SessionStart: Sonnet merges Claude Code's `※ recap` (`away_summary`) with engram's inject_context into a **3-bullet summary** (`status` / `last change` / `next`), cached per-project at `~/.claude/engram/executive/<cwd-slug>.md`. Read on SessionStart with zero latency; rebuilt in background on PreCompact and every 25 prompts.
 - **UserPromptSubmit hook** (`engram.py on-user-prompt`): counts prompts per session and fires mid-session digest + executive rebuild every `ENGRAM_DIGEST_EVERY` prompts (default 25). Keeps long sessions from going stale even without a PreCompact event.
 - `engram preview` subcommand: prints (and builds if missing) the executive cache for the current `cwd`.
