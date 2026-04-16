@@ -23,6 +23,7 @@ from memdoctor import (
     format_rules,
     normalize_error,
     parse_jsonl,
+    signals_for_executive,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "doctor"
@@ -320,6 +321,51 @@ class TestPerProjectRules:
 
         _print_rules_per_project({"sessions": 0, "projects": {}, "totals": {}})
         assert "No per-project rules" in capsys.readouterr().out
+
+
+class TestSignalsForExecutive:
+    def test_empty_filter_returns_empty(self):
+        assert signals_for_executive("") == ""
+
+    def test_nonmatching_project_returns_empty(self):
+        """A cwd that doesn't match any session path yields no signals."""
+        assert signals_for_executive("/nonexistent/path/xyz") == ""
+
+    def test_formats_lines_when_signals_present(self, monkeypatch):
+        """When _analyze reports signals ≥ threshold, output is formatted bullet lines."""
+        import memdoctor
+
+        def fake_analyze(project_filter=None):
+            return {
+                "sessions": 5,
+                "projects": {project_filter: {"error-loop": 3, "rapid-corrections": 2}},
+                "totals": {"error-loop": 3, "rapid-corrections": 2},
+                "error_samples": [],
+            }
+
+        monkeypatch.setattr(memdoctor, "_analyze", fake_analyze)
+        monkeypatch.setattr(memdoctor, "MIN_CORRECTIONS_TO_FLAG", 2)
+        out = signals_for_executive("/my/project")
+        assert "error-loop (3x)" in out
+        assert "rapid-corrections (2x)" in out
+        # error-loop (3x) must rank first
+        assert out.index("error-loop") < out.index("rapid-corrections")
+
+    def test_below_threshold_returns_empty(self, monkeypatch):
+        """Signals below MIN_CORRECTIONS_TO_FLAG are dropped (noise filter)."""
+        import memdoctor
+
+        def fake_analyze(project_filter=None):
+            return {
+                "sessions": 1,
+                "projects": {project_filter: {"error-loop": 1}},
+                "totals": {"error-loop": 1},
+                "error_samples": [],
+            }
+
+        monkeypatch.setattr(memdoctor, "_analyze", fake_analyze)
+        monkeypatch.setattr(memdoctor, "MIN_CORRECTIONS_TO_FLAG", 2)
+        assert signals_for_executive("/my/project") == ""
 
 
 class TestMetaFiltering:

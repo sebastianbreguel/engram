@@ -249,23 +249,33 @@ Rules:
 
 After the facts, add ONE blank line, then a single handoff paragraph addressed to the NEXT Claude session working in this project. Start with "HANDOFF: " and write 2-4 sentences in natural prose: what were we doing, where did we leave off, what should the next session pick up. Be concrete, not meta."""
 
-EXEC_PROMPT = """Merge recap + context into a 3-bullet executive summary to open the next session.
+EXEC_PROMPT = """Merge recap + context + active friction into a 3-bullet executive summary to open the next session.
 
 RECAP: {recap}
 CONTEXT: {context}
+ACTIVE FRICTION (from engram doctor, recent sessions in this project):
+{signals}
 
 EXACT format (3 bullets, in this order, each ≤90 chars):
 - status: <project + current state>
 - last change: <last thing done or decided>
 - next: <next action; join sequential steps with " → ", max 3>
 
-No absolute paths, no "Priority", no code backticks, no preamble or closing.
-If info is missing for a field, write "- <key>: —".
+Rules:
+- If ACTIVE FRICTION is non-empty, the `next:` line MUST address the top signal first
+  (e.g., error-loop → surface the recurring error; rapid-corrections → slow down / confirm).
+- No absolute paths, no "Priority", no code backticks, no preamble or closing.
+- If info is missing for a field, write "- <key>: —".
 
-Example:
+Example (no friction):
 - status: claude-engram post-refactor, 46/46 tests
 - last change: fix argparse --flag=value in fire-and-forget
 - next: dispatcher DISPATCH dict → integrate latest_recap() → docs
+
+Example (with friction: error-loop 3x):
+- status: claude-engram MVP+D2, 79 tests, error-loop active in memcapture
+- last change: D2 error-loop enrichment with memory.db cross-reference
+- next: unstick import error in memcapture.py → re-run pytest → commit
 
 Return ONLY the 3 lines.
 """
@@ -347,7 +357,13 @@ Rules:
 - Output ONLY valid JSON, no commentary"""
 
 
-def _run_llm(prompt: str, chunk: str, timeout: int = 120) -> str:
+def _run_claude(prompt: str, chunk: str, timeout: int = 120) -> str:
+    """Invoke `claude --print` with a prompt + stdin chunk. Helper for in-process LLM calls.
+
+    Distinct from the `_run_llm` argparse handler below — they share a name in
+    earlier revisions, shadowing this helper and breaking every executive /
+    digest rebuild. Keep this named `_run_claude` to preserve the helper path.
+    """
     if os.environ.get("ENGRAM_SKIP_LLM") == "1":
         return ""
     claude_bin = shutil.which("claude")
@@ -566,14 +582,53 @@ _LLM_MODES = {
 }
 
 
+def _git_state(cwd: str, timeout: int = 2) -> dict:
+    """Return `{"branch": str|None, "dirty_files": int}` for a cwd.
+
+    Best-effort: returns `{"branch": None, "dirty_files": 0}` on any failure
+    (not a repo, git missing, timeout). Short timeout keeps PreCompact snappy.
+    """
+    out = {"branch": None, "dirty_files": 0}
+    if not cwd or not Path(cwd).is_dir():
+        return out
+    try:
+        br = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if br.returncode == 0:
+            out["branch"] = br.stdout.strip() or None
+        st = subprocess.run(
+            ["git", "-C", cwd, "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if st.returncode == 0:
+            out["dirty_files"] = sum(1 for ln in st.stdout.splitlines() if ln.strip())
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    return out
+
+
 def _run_llm(args: argparse.Namespace) -> int:
     cfg = _LLM_MODES.get(args.mode)
     if cfg is None:
         return 1
-    chunk = _extract_chunk(Path(args.transcript), tail_lines=cfg["tail_lines"], max_chars=cfg["max_chars"])
+    transcript = Path(args.transcript)
+    chunk = _extract_chunk(transcript, tail_lines=cfg["tail_lines"], max_chars=cfg["max_chars"])
     if len(chunk) < 50:
         return 0
-    output = _run_llm(cfg["prompt"], chunk)
+    # Snapshot mode: prepend deterministic git state so the LLM's summary
+    # can reference branch / dirty-file count without needing schema changes.
+    if args.mode == "snapshot":
+        git = _git_state(_cwd_from_transcript(transcript))
+        if git["branch"] or git["dirty_files"]:
+            header = f"# Git state\nbranch: {git['branch'] or '-'}\ndirty_files: {git['dirty_files']}\n\n"
+            chunk = header + chunk
+    output = _run_claude(cfg["prompt"], chunk)
     if not output:
         return 0
     import memcapture
@@ -609,8 +664,18 @@ def _on_executive(args: argparse.Namespace) -> int:
     if not recap and not context:
         return 0
 
-    prompt = EXEC_PROMPT.replace("{recap}", recap or "(no recap available)").replace("{context}", context or "(no engram context)")
-    output = _run_llm(prompt, chunk="").strip()
+    try:
+        signals = memdoctor.signals_for_executive(cwd)
+    except Exception as e:
+        _log_warning(f"executive: memdoctor signals failed: {e}")
+        signals = ""
+
+    prompt = (
+        EXEC_PROMPT.replace("{recap}", recap or "(no recap available)")
+        .replace("{context}", context or "(no engram context)")
+        .replace("{signals}", signals or "(none)")
+    )
+    output = _run_claude(prompt, chunk="").strip()
     if not output:
         return 0
 

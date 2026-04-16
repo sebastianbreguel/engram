@@ -173,6 +173,71 @@ def test_log_tail_reads_last_n_lines(tmp_path, monkeypatch):
     assert "line-10" not in result.stdout
 
 
+def test_git_state_reports_branch_and_dirty_count(tmp_path):
+    """_git_state returns branch + dirty_files on a real repo."""
+    import importlib.util
+    import subprocess as sp
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    sp.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+    sp.run(["git", "-C", str(repo), "config", "user.email", "t@t.t"], check=True)
+    sp.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
+    (repo / "a.txt").write_text("hello")
+    sp.run(["git", "-C", str(repo), "add", "a.txt"], check=True)
+    sp.run(["git", "-C", str(repo), "commit", "-q", "-m", "init"], check=True)
+    (repo / "b.txt").write_text("dirty")
+    (repo / "c.txt").write_text("dirty")
+
+    spec = importlib.util.spec_from_file_location("engram_mod", ENGRAM)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    state = mod._git_state(str(repo))
+    assert state["branch"] == "main"
+    assert state["dirty_files"] == 2
+
+
+def test_git_state_handles_non_repo(tmp_path):
+    """_git_state returns empty state for a non-git directory (no crash)."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("engram_mod", ENGRAM)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    state = mod._git_state(str(tmp_path))
+    assert state["branch"] is None
+    assert state["dirty_files"] == 0
+
+
+def test_run_llm_helper_and_handler_are_distinct_names():
+    """Guard against the name collision between the `_run_claude` helper and
+    the `_run_llm` argparse handler. Before the fix, two module-level defs
+    named `_run_llm` shadowed each other and broke every executive rebuild.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("engram_mod", ENGRAM)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    assert hasattr(mod, "_run_claude"), "helper must exist under a non-colliding name"
+    assert mod._run_claude.__code__.co_argcount >= 2, "_run_claude takes (prompt, chunk, ...)"
+    assert mod._run_llm.__code__.co_argcount == 1, "_run_llm handler takes (args,) only"
+
+
+def test_exec_prompt_includes_signals_slot():
+    """EXEC_PROMPT must expose a {signals} placeholder so memdoctor friction flows in."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("engram_mod", ENGRAM)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert "{signals}" in mod.EXEC_PROMPT
+    assert "ACTIVE FRICTION" in mod.EXEC_PROMPT
+
+
 def test_hooks_json_uses_engram_inline():
     """After Task 8, hooks.json references engram.py, not .sh."""
     config = _json.loads((REPO / "hooks" / "hooks.json").read_text())
