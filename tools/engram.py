@@ -93,10 +93,10 @@ def _find_transcript(session_id: str) -> tuple[Path, str] | None:
     projects_dir = Path.home() / ".claude" / "projects"
     if not projects_dir.exists():
         return None
-    for project_dir in projects_dir.iterdir():
-        candidate = project_dir / f"{session_id}.jsonl"
-        if candidate.exists():
-            return candidate, project_dir.name
+    # Direct glob: one filesystem call instead of iterating every project dir
+    # and stat-ing a candidate file per dir.
+    for match in projects_dir.glob(f"*/{session_id}.jsonl"):
+        return match, match.parent.name
     return None
 
 
@@ -540,12 +540,18 @@ def _on_user_prompt(_args: argparse.Namespace) -> int:
         found = _find_transcript(session_id)
         if found is not None:
             transcript, project = found
-            import memcapture
-
-            try:
-                memcapture.run(_memcap_ns(transcript=str(transcript)))
-            except Exception:
-                pass
+            # Capture is fire-and-forget — previously ran synchronously here,
+            # which blocked the user's prompt submission every 25 turns while
+            # the full transcript was parsed. _run-llm triggers downstream.
+            _fire_and_forget(
+                [
+                    sys.executable,
+                    str(Path(__file__)),
+                    "capture",
+                    "--transcript",
+                    str(transcript),
+                ]
+            )
             _fire_and_forget(
                 [
                     sys.executable,

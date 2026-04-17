@@ -483,10 +483,61 @@ def _print_rules_per_project(report: dict) -> None:
         print("No per-project rules to suggest.")
 
 
+_SIGNALS_CACHE_DIR = Path.home() / ".claude" / "engram" / "signals_cache"
+
+
+def _project_jsonls_mtime(project_filter: str) -> float:
+    """Max mtime across JSONL files whose project dir matches the filter.
+
+    Used as a cache key for _ranked_signals — if no session file has been
+    touched since the last cache write, we can reuse the cached ranking
+    instead of reparsing every session's JSONL.
+    """
+    if not PROJECTS_DIR.exists():
+        return 0.0
+    max_mtime = 0.0
+    for project_dir in PROJECTS_DIR.iterdir():
+        if not project_dir.is_dir():
+            continue
+        decoded = _decode_project(project_dir.name)
+        if project_filter not in decoded and project_filter not in project_dir.name:
+            continue
+        for jsonl in project_dir.glob("*.jsonl"):
+            try:
+                m = jsonl.stat().st_mtime
+                if m > max_mtime:
+                    max_mtime = m
+            except OSError:
+                continue
+    return max_mtime
+
+
 def _ranked_signals(project_filter: str) -> list[tuple[str, int]]:
-    """Top signals (name, count) for a project, filtered above flag threshold."""
+    """Top signals (name, count) for a project, filtered above flag threshold.
+
+    Cached: result for a project is reused while no JSONL has been modified
+    since the cache was written. Without this, every SessionStart reparsed
+    every historic session file in the project.
+    """
     if not project_filter:
         return []
+
+    slug = re.sub(r"[^a-zA-Z0-9_.-]", "_", project_filter).strip("_") or "default"
+    cache_file = _SIGNALS_CACHE_DIR / f"{slug}.json"
+    mtime_key = _project_jsonls_mtime(project_filter)
+    # mtime_key == 0 means no matching JSONLs exist — skip cache entirely.
+    # Guards tests that monkeypatch _analyze (no real files on disk) and avoids
+    # caching "empty" results when a project has no history yet.
+    use_cache = mtime_key > 0.0
+
+    if use_cache and cache_file.exists():
+        try:
+            cached = json.loads(cache_file.read_text())
+            if cached.get("mtime") == mtime_key and cached.get("min_flag") == MIN_CORRECTIONS_TO_FLAG:
+                return [(s, c) for s, c in cached.get("ranked", [])]
+        except (OSError, json.JSONDecodeError):
+            pass
+
     try:
         report = _analyze(project_filter=project_filter)
     except Exception:
@@ -494,6 +545,13 @@ def _ranked_signals(project_filter: str) -> list[tuple[str, int]]:
     totals = report.get("totals", {})
     ranked = [(s, c) for s, c in totals.items() if c >= MIN_CORRECTIONS_TO_FLAG]
     ranked.sort(key=lambda x: -x[1])
+
+    if use_cache:
+        try:
+            _SIGNALS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text(json.dumps({"mtime": mtime_key, "min_flag": MIN_CORRECTIONS_TO_FLAG, "ranked": ranked}))
+        except OSError:
+            pass
     return ranked
 
 

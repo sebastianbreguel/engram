@@ -143,6 +143,7 @@ class MemoryDB:
             );
             CREATE INDEX IF NOT EXISTS idx_memories_durability ON memories(durability);
             CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed DESC);
+            CREATE INDEX IF NOT EXISTS idx_memories_source_session ON memories(source_session);
 
             CREATE TABLE IF NOT EXISTS compactions (
                 id INTEGER PRIMARY KEY,
@@ -394,8 +395,12 @@ class MemoryDB:
 
     def inject_context(self, project: str | None = None) -> str:
         """Generate ~350 token context block from learned memories + optional compaction snapshot."""
-        self.cleanup_ephemeral()
+        # cleanup_ephemeral runs at most once per day via mtime-guard on a marker
+        # file — avoids a DELETE on every SessionStart.
+        self._cleanup_ephemeral_daily()
 
+        # LIMIT 100 is far above the char_budget can render (~20 rows at 70 chars).
+        # Keeps the query bounded as memories grow.
         if project:
             # Durable memories (preferences) stay global — general guidance applies everywhere.
             # Ephemeral memories (current context) are prioritized by project match.
@@ -410,27 +415,18 @@ class MemoryDB:
                 FROM memories m
                 LEFT JOIN sessions s ON m.source_session = s.session_id
                 ORDER BY keep_priority DESC, m.last_accessed DESC
+                LIMIT 100
                 """,
                 (f"%{_like_escape(project)}%",),
             ).fetchall()
         else:
             rows = self.conn.execute(
-                "SELECT topic, content, durability, last_accessed FROM memories ORDER BY last_accessed DESC"
+                "SELECT topic, content, durability, last_accessed FROM memories ORDER BY last_accessed DESC LIMIT 100"
             ).fetchall()
 
         if not rows:
             output = self._fallback_inject(project)
         else:
-            # Update last_accessed for included memories
-            topics = [r["topic"] for r in rows]
-            if topics:
-                placeholders = ",".join("?" * len(topics))
-                self.conn.execute(
-                    f"UPDATE memories SET last_accessed = datetime('now') WHERE topic IN ({placeholders})",
-                    topics,
-                )
-                self.conn.commit()
-
             # Separate the project-specific handoff from regular memories
             handoff_topic = None
             if project:
@@ -448,10 +444,12 @@ class MemoryDB:
             ephemeral = [r for r in regular_rows if r["durability"] == "ephemeral" and not r["topic"].startswith("handoff_")]
 
             lines = []
+            kept_topics: list[str] = []
             if handoff_row:
                 lines.append("<handoff>")
                 lines.append(handoff_row["content"])
                 lines.append("</handoff>")
+                kept_topics.append(handoff_row["topic"])
 
             lines.append("<session-memory>")
             char_budget = 1400
@@ -465,6 +463,7 @@ class MemoryDB:
                         break
                     lines.append(line)
                     used += len(line)
+                    kept_topics.append(r["topic"])
 
             if ephemeral:
                 lines.append("Current context:")
@@ -474,9 +473,21 @@ class MemoryDB:
                         break
                     lines.append(line)
                     used += len(line)
+                    kept_topics.append(r["topic"])
 
             lines.append("</session-memory>")
             output = "\n".join(lines)
+
+            # Update last_accessed only for memories that actually made it into
+            # the injected context. Previously updated all fetched rows, wasting
+            # writes on rows dropped by the char_budget loop.
+            if kept_topics:
+                placeholders = ",".join("?" * len(kept_topics))
+                self.conn.execute(
+                    f"UPDATE memories SET last_accessed = datetime('now') WHERE topic IN ({placeholders})",
+                    kept_topics,
+                )
+                self.conn.commit()
 
         # Append active patterns (co-edits, recurring errors)
         try:
@@ -496,11 +507,31 @@ class MemoryDB:
 
     @staticmethod
     def _read_active_patterns(wiki_dir: Path | None = None, max_patterns: int = 5) -> str:
-        """Read top active co_edit/error_recurrence patterns from wiki. Returns compact text or ''."""
+        """Read top active co_edit/error_recurrence patterns from wiki. Returns compact text or ''.
+
+        Cached: result is written to `<wiki>/.active_cache` and reused while the
+        patterns/ directory mtime matches the cache's stored mtime. Avoids
+        globbing + regex-ing every pattern .md on every SessionStart.
+        """
         wiki = wiki_dir or (Path.home() / ".claude" / "patterns")
         patterns_dir = wiki / "patterns"
         if not patterns_dir.exists():
             return ""
+
+        cache_file = wiki / ".active_cache"
+        try:
+            dir_mtime = patterns_dir.stat().st_mtime
+        except OSError:
+            dir_mtime = 0.0
+
+        if cache_file.exists():
+            try:
+                cached = json.loads(cache_file.read_text())
+                if cached.get("mtime") == dir_mtime and cached.get("max_patterns") == max_patterns:
+                    return cached.get("text", "")
+            except (OSError, json.JSONDecodeError):
+                pass
+
         entries: list[tuple[int, str]] = []
         for pf in patterns_dir.glob("*.md"):
             try:
@@ -520,11 +551,19 @@ class MemoryDB:
             if not desc_m:
                 continue
             entries.append((conf, desc_m.group(1).strip()[:120]))
+
         if not entries:
-            return ""
-        entries.sort(key=lambda x: -x[0])
-        lines = [e[1] for e in entries[:max_patterns]]
-        return "<patterns>\n" + "\n".join(f"- {line}" for line in lines) + "\n</patterns>"
+            text = ""
+        else:
+            entries.sort(key=lambda x: -x[0])
+            lines = [e[1] for e in entries[:max_patterns]]
+            text = "<patterns>\n" + "\n".join(f"- {line}" for line in lines) + "\n</patterns>"
+
+        try:
+            cache_file.write_text(json.dumps({"mtime": dir_mtime, "max_patterns": max_patterns, "text": text}))
+        except OSError:
+            pass
+        return text
 
     def _format_snapshot(self, snapshot_json: str, max_chars: int = 600) -> str:
         """Format a compaction snapshot as an injection block (capped to ~150 tokens)."""
@@ -625,6 +664,26 @@ class MemoryDB:
         cursor = self.conn.execute("DELETE FROM memories WHERE durability = 'ephemeral' AND created_at < datetime('now', '-7 days')")
         self.conn.commit()
         return cursor.rowcount
+
+    def _cleanup_ephemeral_daily(self) -> int:
+        """Run cleanup_ephemeral at most once per calendar day.
+
+        Uses an mtime-guard marker file so that SessionStart — which calls
+        inject_context() — doesn't pay the DELETE cost on every session.
+        """
+        marker = Path.home() / ".claude" / ".engram-cleanup-stamp"
+        try:
+            from datetime import datetime
+
+            today = datetime.now().strftime("%Y-%m-%d")
+            if marker.exists() and marker.read_text().strip() == today:
+                return 0
+            count = self.cleanup_ephemeral()
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(today)
+            return count
+        except Exception:
+            return 0
 
     def list_memories(self, topic_pattern: str | None = None) -> list[dict]:
         if topic_pattern:
