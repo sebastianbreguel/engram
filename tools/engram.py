@@ -878,6 +878,58 @@ def _verify_install(_args: argparse.Namespace) -> int:
     return 1
 
 
+def _usage(_args: argparse.Namespace) -> int:
+    """Count agent/skill/plugin invocations across all session JSONLs.
+    Passive readout: table sorted by last_used asc (stalest first). No recommender."""
+    from collections import defaultdict
+
+    root = Path.home() / ".claude" / "projects"
+    if not root.exists():
+        print("No ~/.claude/projects/. Nothing to count.")
+        return 1
+    buckets: dict[tuple[str, str], list] = defaultdict(lambda: [0, ""])
+    for f in root.rglob("*.jsonl"):
+        try:
+            with f.open(encoding="utf-8") as fh:
+                for line in fh:
+                    try:
+                        d = _json.loads(line)
+                    except Exception:
+                        continue
+                    msg = d.get("message") or {}
+                    if not isinstance(msg, dict):
+                        continue
+                    ts = d.get("timestamp", "") or ""
+                    for c in msg.get("content") or []:
+                        if not isinstance(c, dict) or c.get("type") != "tool_use":
+                            continue
+                        n = c.get("name", "") or ""
+                        inp = c.get("input") or {}
+                        if n == "Agent":
+                            key = ("agent", inp.get("subagent_type") or "?")
+                        elif n == "Skill":
+                            key = ("skill", inp.get("skill") or "?")
+                        elif n.startswith("mcp__"):
+                            parts = n.split("__", 2)
+                            key = ("plugin", parts[1] if len(parts) >= 2 else n)
+                        else:
+                            continue
+                        b = buckets[key]
+                        b[0] += 1
+                        if ts > b[1]:
+                            b[1] = ts
+        except Exception:
+            continue
+    if not buckets:
+        print("No agent/skill/plugin invocations found.")
+        return 0
+    rows = sorted(buckets.items(), key=lambda kv: kv[1][1] or "")
+    print(f"{'type':<7} {'name':<50} {'count':>6}  last_used")
+    for (t, n), (cnt, last) in rows:
+        print(f"{t:<7} {n[:50]:<50} {cnt:>6}  {last[:10] or '<unknown>'}")
+    return 0
+
+
 def _self_check(args: argparse.Namespace) -> int:
     """Detect vague-prompt → tool-cascade pattern: sessions where user prompts were
     short but Claude fired many tools. Highest-cost failure mode per your CLAUDE.md
@@ -1013,6 +1065,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     st = sub.add_parser("stats", help="capture statistics")
     st.set_defaults(func=lambda _a: memcapture.run(_memcap_ns(stats=True)))
+
+    us = sub.add_parser("usage", help="count agent/skill/plugin invocations (stalest first)")
+    us.set_defaults(func=_usage)
 
     sc = sub.add_parser("self-check", help="detect vague-prompt → tool-cascade sessions (your prompting habits)")
     sc.add_argument("--limit", type=int, default=10, help="max sessions to show (default 10)")

@@ -14,6 +14,7 @@ uv run ~/.claude/tools/engram.py stats              # counts, durability split, 
 uv run ~/.claude/tools/engram.py memories           # list all learned memories
 uv run ~/.claude/tools/engram.py search <query>     # FTS5 search over captured facts
 uv run ~/.claude/tools/engram.py log --tail 20      # tail ~/.claude/engram.log (background LLM failures)
+uv run ~/.claude/tools/engram.py usage              # count agent/skill/plugin invocations (stalest first)
 
 # Forget memories (single or bulk; exactly one mode required)
 uv run ~/.claude/tools/engram.py forget <topic>                 # delete one memory by topic
