@@ -89,8 +89,7 @@ echo '{"session_id":"abc","cwd":"/path/to/project"}' | \
 
 | Command | What it does |
 |---|---|
-| `/memclean` | Consolidate memory files, prune stale entries, mine transcripts for missed facts |
-| `/reflect`  | Analyze recent sessions, detect patterns, propose CLAUDE.md rules. Advisory — never writes |
+| `/reflect`  | Consolidate memory files (writes) + propose CLAUDE.md rules (advisory) from recent sessions |
 | `/patterns` | Browse the `~/.claude/patterns/` wiki from inside Claude Code |
 
 ## Token budget
@@ -105,8 +104,7 @@ echo '{"session_id":"abc","cwd":"/path/to/project"}' | \
 | `on-precompact` executive | ~1-2K input | Background, detached Sonnet 4.6 subprocess |
 | `on-user-prompt` digest + executive | ~2-5K input | Every 25 prompts, detached Sonnet 4.6 |
 | `on-precompact` patterns | 0 | Background, no LLM |
-| `/memclean` | ~700 | Only when invoked |
-| `/reflect`  | ~500 | Only when invoked |
+| `/reflect`  | ~900 | Only when invoked |
 | `/patterns` | ~300 | Only when invoked |
 | **Ambient total** | **~350** | **Per session** |
 
@@ -123,7 +121,6 @@ cp tools/memdoctor.py     ~/.claude/tools/
 chmod +x ~/.claude/tools/engram.py
 
 # Copy skills
-cp -r skills/memclean  ~/.claude/skills/
 cp -r skills/reflect   ~/.claude/skills/
 cp -r skills/patterns  ~/.claude/skills/
 ```

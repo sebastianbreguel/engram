@@ -20,7 +20,6 @@ fi
 
 echo "[1/4] Creating directories..."
 mkdir -p "$CLAUDE_DIR/tools"
-mkdir -p "$CLAUDE_DIR/skills/memclean"
 mkdir -p "$CLAUDE_DIR/skills/reflect"
 mkdir -p "$CLAUDE_DIR/skills/patterns"
 
@@ -36,11 +35,9 @@ echo "  -> tools/memcapture.py (SQLite session capture)"
 echo "  -> tools/mempatterns.py (pattern detection + wiki)"
 echo "  -> tools/memdoctor.py (friction signal detector)"
 
-cp "$SCRIPT_DIR/skills/memclean/SKILL.md" "$CLAUDE_DIR/skills/memclean/SKILL.md"
 cp "$SCRIPT_DIR/skills/reflect/SKILL.md" "$CLAUDE_DIR/skills/reflect/SKILL.md"
 cp "$SCRIPT_DIR/skills/patterns/SKILL.md" "$CLAUDE_DIR/skills/patterns/SKILL.md"
-echo "  -> skills/memclean/SKILL.md (memory consolidation)"
-echo "  -> skills/reflect/SKILL.md (pattern detection)"
+echo "  -> skills/reflect/SKILL.md (memory consolidation + rule proposals)"
 echo "  -> skills/patterns/SKILL.md (pattern explorer)"
 
 echo "[3/4] Configuring hooks..."

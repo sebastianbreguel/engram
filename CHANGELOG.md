@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+- **Skills merged**: `/memclean` absorbed into `/reflect`. One unified reflection pass: Phase 1 orient → Phase 2 gather → Phase 3 detect patterns → Phase 4 consolidate memory (writes) → Phase 5 propose CLAUDE.md rules (advisory). Users who ran both now run one. Memory writes stay agentic; CLAUDE.md stays advisory.
+
+### Removed
+- `/memclean` skill (merged into `/reflect`). Delete `~/.claude/skills/memclean/` manually if present from an older install.
+
 ### Added
 - `engram --version` top-level flag and `engram verify-install` subcommand: SHA256-compares `tools/*.py` in the repo against `~/.claude/tools/` and flags drift, missing files, or sync. Catches "forgot to re-run install.sh" silently breaking behavior.
 - **SessionStart banner surfaces friction**: when memdoctor detects active signals (correction-heavy, error-loop, etc.) for the current project, banner appends `friction: <signal>(Nx), ... (run: engram doctor)`. Top 2 signals, ranked by count.

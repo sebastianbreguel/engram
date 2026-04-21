@@ -1,138 +1,115 @@
 ---
 name: reflect
-description: "Analyze recent session snapshots and memory files to detect behavioral patterns, then propose advisory updates to CLAUDE.md. Use when asked to 'reflect', 'find patterns', 'what have I been doing', 'update my rules', or after accumulating 5+ sessions. ADVISORY ONLY — never writes to CLAUDE.md without explicit approval."
+description: "Unified reflection pass — consolidate memory files, prune the index, and propose CLAUDE.md rule updates from recent sessions. Use when asked to 'reflect', 'consolidate memory', 'clean up memories', 'prune memories', 'find patterns', 'what have I been doing', 'update my rules', or after accumulating 5+ sessions. Memory files: writes/merges/prunes with judgment. CLAUDE.md: advisory only — never writes without explicit approval."
 ---
-# Reflect: Advisory Pattern Detection
+# Reflect: Memory Consolidation + Rule Proposals
 
-You are performing a reflection — analyzing recent sessions and memories to detect recurring patterns, preferences, anti-patterns, and useful rules. Your output is ADVISORY: you propose changes, the user decides what to keep.
+You are performing a reflection. Two outputs:
+1. **Memory pass** — consolidate, merge, prune memory files directly.
+2. **Rules pass** — propose CLAUDE.md updates (advisory; wait for approval).
 
 Memory directory: `${MEMORY_DIR}`
 ${MEMORY_DIR_CONTEXT}
 
 Session snapshots: `~/.claude/session-env/`
-Compiled knowledge (if exists): `~/.claude/compiled-knowledge/`
+Session transcripts: `${TRANSCRIPTS_DIR}` (large JSONL — grep narrowly, don't read whole files)
 
 ---
 
-## Phase 1 — Gather Signal
+## Phase 1 — Orient
 
-### 1a. Read recent session snapshots
-```bash
-ls -t ~/.claude/session-env/precompact-*.md | head -10
-```
-Read the 5 most recent snapshots (skip `precompact-last.md` which is a duplicate of the latest). Extract:
-- What projects were being worked on
-- What git branches were active
-- What triggers caused compaction
+- `ls` the memory directory; skim existing topic files so you improve rather than duplicate.
+- Read `${INDEX_FILE}` to understand the current index.
+- Read current rules: project `.claude/CLAUDE.md` and global `~/.claude/CLAUDE.md`. You'll check them for violations and gaps.
+- If `logs/` or `sessions/` subdirectories exist, review recent entries.
 
-### 1b. Read current memories
-- Read `${INDEX_FILE}` and all memory files it references
-- Note the `type:` of each memory (user, feedback, project, reference)
+## Phase 2 — Gather signal
 
-### 1c. Read current CLAUDE.md
-- Read the CLAUDE.md for the current project (`.claude/CLAUDE.md` or project-level)
-- Read the global `~/.claude/CLAUDE.md`
-- Note all existing rules — you will check for violations and gaps
+Sources in rough priority order:
 
-### 1d. Read compiled knowledge (if exists)
-- If `~/.claude/compiled-knowledge/concepts.md` exists, read it for cross-project context
+1. **Session snapshots** — `ls -t ~/.claude/session-env/precompact-*.md | head -10`, read the 5 most recent (skip `precompact-last.md`, it's a duplicate).
+2. **Daily logs** (`logs/YYYY/MM/YYYY-MM-DD.md`) if present — append-only stream.
+3. **Memories that drifted** — facts contradicted by the current codebase.
+4. **Targeted transcript search** — only for specific context you already suspect matters:
+   `grep -rn "<narrow term>" ${TRANSCRIPTS_DIR}/ --include="*.jsonl" | tail -50`
 
----
+Extract: decisions, user corrections, tool preferences, architecture choices, rule violations.
 
-## Phase 2 — Detect Patterns
+## Phase 3 — Detect patterns
 
-Analyze the gathered signal across 6 categories:
+Score each signal across six categories:
 
-### Category 1: Persistent Preferences
-Things the user does repeatedly without being told. Look for:
-- Tool choices (which tools are used most/least)
-- Language preferences (Spanish vs English in different contexts)
-- Code style patterns not captured in CLAUDE.md
+- **Persistent preferences** — tool choices, language, code style not captured in CLAUDE.md.
+- **Design decisions that stuck** — architecture, libraries, workflows chosen and not reverted.
+- **Anti-patterns** — approaches corrected, abandoned, or that caused rework.
+- **Efficiency lessons** — shortcuts found, unnecessary steps eliminated.
+- **Project-specific patterns** — naming, file organization, testing habits.
+- **Rule violations (highest priority)** — for every existing CLAUDE.md rule: violated, validated, or stale?
 
-### Category 2: Design Decisions That Worked
-Approaches that were chosen and not reverted:
-- Architecture choices
-- Library/tool selections
-- Workflow patterns
+Frequency threshold:
+- 1 occurrence → ignore (one-off).
+- 2 occurrences → emerging (note).
+- 3+ occurrences → strong (recommend).
 
-### Category 3: Anti-Patterns to Avoid
-Things that went wrong or were corrected:
-- Approaches that were tried and abandoned
-- Corrections the user made ("no, not that way")
-- Patterns that caused errors or rework
+Consider consistency (contradicted anywhere?) and scope (global vs project-specific).
 
-### Category 4: Efficiency Lessons
-Process improvements discovered:
-- Shortcuts found
-- Unnecessary steps eliminated
-- Better tool combinations
+## Phase 4 — Consolidate memory
 
-### Category 5: Project-Specific Patterns
-Patterns that recur within a specific project:
-- Naming conventions
-- File organization habits
-- Testing preferences
+Write or update memory files at the top level of the memory directory. Use the memory format and `type:` conventions from your system prompt's auto-memory section.
 
-### Category 6: Rule Violations (HIGHEST PRIORITY)
-**Check every existing CLAUDE.md rule against recent sessions:**
-- Was any rule violated? → Strengthen it with context
-- Was any rule followed unusually well? → Note as validated
-- Are there rules that no longer apply? → Suggest removal
+- **Merge** new signal into existing topic files; don't create near-duplicates.
+- **Convert relative dates** ("yesterday", "last week") to absolute dates so entries stay interpretable.
+- **Delete contradicted facts** at the source — fix the file, don't paper over.
 
----
+Update `${INDEX_FILE}` (keep under ${INDEX_MAX_LINES} lines AND ~25KB):
+- One-line entries: `- [Title](file.md) — one-line hook`.
+- Never write memory content directly into the index.
+- Remove stale pointers, add new ones, resolve contradictions.
+- If a line exceeds ~200 chars, move the detail into its topic file.
 
-## Phase 3 — Score Patterns
+**Temporal review** — scan `verified:` frontmatter fields:
+- No `verified:` → add `verified: [today's date]`.
+- Older than 30 days → check against current state. Update, fix, or delete. Flag as "needs human review" if uncertain.
 
-For each detected pattern:
-- **Frequency**: How many sessions show this pattern?
-  - 1 occurrence = one-off (ignore)
-  - 2 occurrences = emerging pattern (note)
-  - 3+ occurrences = strong pattern (recommend)
-- **Consistency**: Is the pattern contradicted in any session?
-- **Scope**: Is it global or project-specific?
+## Phase 5 — Propose rule updates
 
-Only propose rules for patterns with 2+ occurrences.
+Present findings as a structured report. **DO NOT write to CLAUDE.md** — propose and wait.
 
----
-
-## Phase 4 — Propose Updates
-
-Present findings as a structured report:
-
-### Format
 ```markdown
 ## Reflection Report — [date]
 
-### Strong Patterns (3+ occurrences)
-1. [Pattern description]
-   - Evidence: [which sessions/memories]
-   - Proposed CLAUDE.md rule: `[one-line imperative rule]`
+### Strong patterns (3+ occurrences)
+1. [Pattern] — evidence: [sessions/memories] — proposed rule: `[one-line imperative]`
 
-### Emerging Patterns (2 occurrences)
-1. [Pattern description]
-   - Evidence: [which sessions/memories]
-   - Proposed CLAUDE.md rule: `[one-line imperative rule]`
+### Emerging patterns (2 occurrences)
+1. [Pattern] — evidence: [...] — proposed rule: `[...]`
 
-### Rule Violations Detected
-1. [Rule] was violated in [session/context]
-   - Suggested strengthening: [how to make it clearer]
+### Rule violations detected
+1. [Rule] violated in [context] — suggested strengthening: [how]
 
-### Stale Rules (consider removing)
-1. [Rule] — not relevant in recent sessions because [reason]
+### Stale rules (consider removing)
+1. [Rule] — not relevant recently because [reason]
 
-### Memory Health
-- Memories that may be outdated: [list]
-- Memories that should be merged: [list]
-- Missing memories (gaps in coverage): [list]
+### Memory health
+- Consolidated: [list]
+- Pruned: [list]
+- Flagged for review: [list]
 ```
 
 ---
 
-## CRITICAL RULES
+## Rules
 
-1. **NEVER write to CLAUDE.md directly.** Present proposals and wait for explicit approval.
-2. **NEVER create memories.** Only propose what should be remembered.
-3. **Proposed rules must be one-line, imperative tone.** No verbose explanations in CLAUDE.md.
+1. **Memory files**: write/update/delete with judgment — this is the consolidation job.
+2. **CLAUDE.md**: NEVER write directly. Propose rules and wait for approval.
+3. **Proposed rules are one-line, imperative.** No verbose explanations in CLAUDE.md.
 4. **Distinguish global vs project-scoped.** A React pattern does not belong in global CLAUDE.md.
-5. **Be conservative.** When in doubt, report the pattern but don't propose a rule.
-6. **Credit your evidence.** Every proposal must cite which sessions or memories support it.
+5. **Propose rules only for 2+ occurrences.** Ignore one-offs.
+6. **Credit evidence.** Every proposal cites sessions or memories.
+7. **Convert relative dates to absolute** at write time.
+
+Return a brief summary: what was consolidated/pruned and what rules were proposed. If nothing changed, say so.${ADDITIONAL_CONTEXT?`
+
+## Additional context
+
+${ADDITIONAL_CONTEXT}`:""}
