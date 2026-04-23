@@ -624,31 +624,6 @@
     </div>
   </div>
 
-  <aside id="explainer" aria-hidden="true">
-    <header>
-      <span><strong>how it works</strong><span class="sub">day 1 capture → day 2 split · 23s</span></span>
-      <button id="expl-toggle" title="toggle (e)">▾</button>
-    </header>
-    <ol>
-      <li data-t="0.0"><span class="t">0.0s</span>Split live: <span class="hi">left = user session</span> · <span class="hi">right = engram capturing</span></li>
-      <li data-t="0.6"><span class="t">0.6s</span>LEFT boots Claude Code · RIGHT shows engram memory view</li>
-      <li data-t="2.0"><span class="t">2.0s</span>LEFT: user types <em>"agregá tests para memdoctor signals"</em></li>
-      <li data-t="3.4"><span class="t">3.4s</span>LEFT: work streams · RIGHT: <span class="ok">memory entries cascade</span> in real time</li>
-      <li data-t="4.8"><span class="t">4.8s</span>Caption: <span class="hi">everything you just did got remembered</span></li>
-      <li data-t="5.5"><span class="t">5.5s</span>RIGHT: <span class="ok">✓ executive saved</span> → 3 bullets written to <code>~/.claude/engram/executive/</code></li>
-      <li data-t="6.8"><span class="t">6.8s</span><span class="tag">— next day —</span> overlay · same project · fresh shell</li>
-      <li data-t="8.0"><span class="t">8.0s</span>LEFT chip → <span class="bad">day 2 · without engram</span> · RIGHT morphs to terminal <span class="ok">day 2 · with engram</span></li>
-      <li data-t="8.8"><span class="t">8.8s</span>Both boot Claude Code</li>
-      <li data-t="9.4"><span class="t">9.4s</span>LEFT types <em>"where were we?"</em></li>
-      <li data-t="9.6"><span class="t">9.6s</span>RIGHT: <span class="tag">SessionStart:startup</span> fires — loads the memories we saw captured</li>
-      <li data-t="10.0"><span class="t">10.0s</span>RIGHT: <span class="hi">same 3 bullets</span> from Day 1 appear as executive</li>
-      <li data-t="10.8"><span class="t">10.8s</span>LEFT: <em>"I don't have context from previous sessions."</em></li>
-      <li data-t="11.8"><span class="t">11.8s</span>RIGHT: user continues Day 1's <code>next:</code> directly</li>
-      <li data-t="13.5"><span class="t">13.5s</span>RIGHT: work streams · progress climbs</li>
-      <li data-t="18.5"><span class="t">18.5s</span>Mask fade → close: stats + <code>/plugin install claude-engram</code></li>
-    </ol>
-    <footer>click stage to replay · press <kbd>e</kbd> to collapse</footer>
-  </aside>
 
   <script>
     const tl = gsap.timeline({ paused: true, defaults: { ease: 'power2.out' } });
